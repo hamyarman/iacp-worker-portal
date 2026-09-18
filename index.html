@@ -7,7 +7,7 @@
   <style>
     body {
       font-family: Arial, sans-serif;
-      max-width: 860px;
+      max-width: 900px;
       margin: 40px auto;
       padding: 0 18px;
       line-height: 1.55;
@@ -39,7 +39,7 @@
 
   <div class="card">
     <p class="ok">GitHub Portal Reachability: PASS</p>
-    <p>This page is a non-mutating LAB probe. It does not contain Claim or Submit controls.</p>
+    <p>This page is a non-mutating LAB functional read probe.</p>
   </div>
 
   <div class="card">
@@ -50,71 +50,211 @@
   </div>
 
   <div class="card">
-    <h3>Automatic Gateway Read Test</h3>
-    <p class="muted">On page load, this page automatically performs two read-only requests to the current IACP Apps Script Gateway:</p>
-    <p>1. <code>?action=health</code></p>
-    <p>2. <code>?action=get_task&amp;taskId=LAB-006</code></p>
+    <h3>Automatic Gateway Read Test — TEST-003</h3>
+    <p class="muted">This page performs bounded read-only retries against the current IACP Apps Script Gateway. No mutation is performed.</p>
+
     <p><b>Health result:</b></p>
     <pre id="healthResult">Testing...</pre>
+
     <p><b>Task result:</b></p>
     <pre id="taskResult">Testing...</pre>
+
+    <p><b>Functional read output:</b></p>
+    <pre id="functionalOutput">Waiting for task read...</pre>
+
     <p id="summary" class="warn">Gateway read test in progress...</p>
   </div>
 
   <script>
     const GATEWAY = 'https://script.google.com/macros/s/AKfycbzu9nNZjPl9cMPdLVvkZJR3cLhMEewZeirtZaknvyvfk95OLTk44LA-CAU4XvmrZIc/exec';
+    const MAX_ATTEMPTS = 3;
+    const RETRY_DELAY_MS = 1200;
 
-    async function readJson(url) {
-      const response = await fetch(url, {
-        method: 'GET',
-        redirect: 'follow',
-        cache: 'no-store'
-      });
+    function sleep(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
 
-      const text = await response.text();
-      let parsed = null;
+    function withCacheBuster(url, attempt) {
+      const sep = url.includes('?') ? '&' : '?';
+      return url + sep + '_cb=' + Date.now() + '-' + attempt;
+    }
 
-      try {
-        parsed = JSON.parse(text);
-      } catch (e) {
-        throw new Error('BAD_JSON | HTTP ' + response.status + ' | ' + text.substring(0, 500));
+    async function readJsonWithRetry(baseUrl, label) {
+      const attempts = [];
+
+      for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        const url = withCacheBuster(baseUrl, attempt);
+
+        try {
+          const response = await fetch(url, {
+            method: 'GET',
+            redirect: 'follow',
+            cache: 'no-store',
+            headers: {
+              'Accept': 'application/json,text/plain,*/*'
+            }
+          });
+
+          const text = await response.text();
+          let parsed = null;
+
+          try {
+            parsed = JSON.parse(text);
+          } catch (e) {
+            attempts.push({
+              attempt: attempt,
+              httpStatus: response.status,
+              result: 'BAD_JSON',
+              preview: text.substring(0, 220)
+            });
+
+            if (attempt < MAX_ATTEMPTS) {
+              await sleep(RETRY_DELAY_MS * attempt);
+              continue;
+            }
+
+            throw new Error(
+              label + '_BAD_JSON_AFTER_' + MAX_ATTEMPTS + '_ATTEMPTS | HTTP ' + response.status
+            );
+          }
+
+          if (!response.ok) {
+            attempts.push({
+              attempt: attempt,
+              httpStatus: response.status,
+              result: 'HTTP_ERROR',
+              body: parsed
+            });
+
+            if (attempt < MAX_ATTEMPTS) {
+              await sleep(RETRY_DELAY_MS * attempt);
+              continue;
+            }
+
+            throw new Error(
+              label + '_HTTP_' + response.status + '_AFTER_' + MAX_ATTEMPTS + '_ATTEMPTS'
+            );
+          }
+
+          attempts.push({
+            attempt: attempt,
+            httpStatus: response.status,
+            result: 'SUCCESS'
+          });
+
+          return {
+            data: parsed,
+            attempts: attempts,
+            successAttempt: attempt
+          };
+
+        } catch (err) {
+          const message = err && err.message ? err.message : String(err);
+
+          if (
+            message.includes('_BAD_JSON_AFTER_') ||
+            message.includes('_HTTP_')
+          ) {
+            throw {
+              message: message,
+              attempts: attempts
+            };
+          }
+
+          attempts.push({
+            attempt: attempt,
+            result: 'FETCH_ERROR',
+            error: message
+          });
+
+          if (attempt < MAX_ATTEMPTS) {
+            await sleep(RETRY_DELAY_MS * attempt);
+            continue;
+          }
+
+          throw {
+            message: label + '_FETCH_FAILED_AFTER_' + MAX_ATTEMPTS + '_ATTEMPTS | ' + message,
+            attempts: attempts
+          };
+        }
       }
 
-      if (!response.ok) {
-        throw new Error('HTTP_' + response.status + ' | ' + JSON.stringify(parsed));
-      }
-
-      return parsed;
+      throw {
+        message: label + '_UNKNOWN_FAILURE',
+        attempts: attempts
+      };
     }
 
     async function runReadOnlyProbe() {
       const healthBox = document.getElementById('healthResult');
       const taskBox = document.getElementById('taskResult');
+      const functionalBox = document.getElementById('functionalOutput');
       const summary = document.getElementById('summary');
 
       let healthOk = false;
       let taskOk = false;
+      let taskPayload = null;
 
       try {
-        const health = await readJson(GATEWAY + '?action=health');
-        healthBox.textContent = JSON.stringify(health, null, 2);
-        healthOk = !!(health && health.ok);
+        const healthRead = await readJsonWithRetry(
+          GATEWAY + '?action=health',
+          'GATEWAY_HEALTH'
+        );
+
+        healthBox.textContent = JSON.stringify({
+          successAttempt: healthRead.successAttempt,
+          attempts: healthRead.attempts,
+          response: healthRead.data
+        }, null, 2);
+
+        healthOk = !!(healthRead.data && healthRead.data.ok);
+
       } catch (err) {
-        healthBox.textContent = 'GATEWAY_HEALTH_READ_FAILED\n' + (err && err.message ? err.message : String(err));
+        healthBox.textContent = JSON.stringify({
+          error: err && err.message ? err.message : String(err),
+          attempts: err && err.attempts ? err.attempts : []
+        }, null, 2);
       }
 
       try {
-        const task = await readJson(GATEWAY + '?action=get_task&taskId=LAB-006');
-        taskBox.textContent = JSON.stringify(task, null, 2);
-        taskOk = !!(
-          task &&
-          task.ok &&
-          task.task &&
-          task.task.taskId === 'LAB-006' &&
-          Number(task.task.revision) === 0
+        const taskRead = await readJsonWithRetry(
+          GATEWAY + '?action=get_task&taskId=LAB-006',
+          'GATEWAY_TASK'
         );
+
+        taskPayload = taskRead.data;
+
+        taskBox.textContent = JSON.stringify({
+          successAttempt: taskRead.successAttempt,
+          attempts: taskRead.attempts,
+          response: taskRead.data
+        }, null, 2);
+
+        taskOk = !!(
+          taskPayload &&
+          taskPayload.ok &&
+          taskPayload.task &&
+          taskPayload.task.taskId === 'LAB-006' &&
+          Number(taskPayload.task.revision) === 0
+        );
+
       } catch (err) {
-        taskBox.textContent = 'GATEWAY_TASK_READ_FAILED\n' + (err && err.message ? err.message : String(err));
+        taskBox.textContent = JSON.stringify({
+          error: err && err.message ? err.message : String(err),
+          attempts: err && err.attempts ? err.attempts : []
+        }, null, 2);
+      }
+
+      if (taskOk) {
+        const t = taskPayload.task;
+
+        functionalBox.textContent =
+          'LAB-006 FUNCTIONAL READ PASSED\n' +
+          'Status: ' + String(t.status || '') + '\n' +
+          'Next Actor: ' + String(t.nextActor || '') + '\n' +
+          'Task Title: ' + String(t.taskTitle || '');
+      } else {
+        functionalBox.textContent = 'LAB-006 FUNCTIONAL READ FAILED';
       }
 
       if (healthOk && taskOk) {
