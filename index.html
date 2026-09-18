@@ -4,271 +4,590 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="referrer" content="no-referrer" />
-  <title>IACP Worker Portal — LAB-006 Dual Role</title>
+  <title>IACP Generic Worker Portal — LAB</title>
   <style>
-    body{font-family:Arial,sans-serif;max-width:980px;margin:40px auto;padding:0 18px;line-height:1.55;background:#f7f7f7;color:#1f1f1f}
-    .card{background:#fff;border:1px solid #d8d8d8;border-radius:12px;padding:20px;margin:16px 0}
-    .ok{color:#176b2c;font-weight:700}.warn{color:#8a5a00;font-weight:700}.error{color:#a40000;font-weight:700}.muted{color:#666}
-    .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.hidden{display:none}
-    button{padding:12px 20px;font-size:16px;font-weight:700;cursor:pointer;border:1px solid #888;border-radius:8px;background:#fff;margin-right:8px}
-    button:disabled{cursor:not-allowed;opacity:.55}
-    textarea{width:100%;min-height:200px;box-sizing:border-box;padding:12px;border:1px solid #aaa;border-radius:8px;font:inherit;line-height:1.5;resize:vertical}
-    code,pre{white-space:pre-wrap;word-break:break-word;background:#f0f0f0;padding:12px;border-radius:8px}
+    :root{
+      color-scheme:light;
+      --bg:#f5f6f8;--card:#fff;--text:#1f2328;--muted:#667085;
+      --border:#d0d5dd;--ok:#147d3f;--warn:#9a6700;--bad:#b42318;
+      --btn:#111827;--btnText:#fff;
+    }
+    *{box-sizing:border-box}
+    body{font-family:Arial,Helvetica,sans-serif;margin:0;background:var(--bg);color:var(--text);line-height:1.5}
+    main{max-width:1040px;margin:32px auto;padding:0 16px 48px}
+    h1{margin:0 0 8px;font-size:28px}
+    h2,h3{margin-top:0}
+    .muted{color:var(--muted)}
+    .ok{color:var(--ok);font-weight:700}
+    .warn{color:var(--warn);font-weight:700}
+    .bad{color:var(--bad);font-weight:700}
+    .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px;margin:14px 0}
+    .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 18px}
+    .kv{padding:8px 0;border-bottom:1px solid #eef0f2}
+    .kv b{display:block;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em}
+    pre{white-space:pre-wrap;word-break:break-word;background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:12px;max-height:420px;overflow:auto}
+    textarea,input{width:100%;padding:10px 12px;border:1px solid #b8c0cc;border-radius:8px;font:inherit;background:#fff}
+    textarea{min-height:130px;resize:vertical}
+    label{display:block;font-weight:700;margin:10px 0 5px}
+    button{appearance:none;border:1px solid #111827;border-radius:8px;background:var(--btn);color:var(--btnText);padding:10px 15px;font-weight:700;cursor:pointer;margin:4px 8px 4px 0}
+    button.secondary{background:#fff;color:#111827}
+    button.danger{background:#fff;color:var(--bad);border-color:var(--bad)}
+    button:disabled{opacity:.45;cursor:not-allowed}
+    .hidden{display:none}
+    .artifact{border:1px solid #e1e5ea;border-radius:10px;padding:12px;margin:10px 0;background:#fcfcfd}
     a{word-break:break-all}
-    @media(max-width:700px){.grid{grid-template-columns:1fr}}
+    code{background:#f2f4f7;padding:2px 5px;border-radius:4px}
+    .pill{display:inline-block;padding:4px 8px;border-radius:999px;background:#eef2f6;margin:2px 4px 2px 0;font-size:12px}
+    @media(max-width:720px){.grid{grid-template-columns:1fr}}
   </style>
 </head>
 <body>
-  <h1>IACP Worker Portal — LAB-006</h1>
+<main>
+  <h1>IACP Generic Worker Portal</h1>
+  <div class="muted">Generalized Worker Bridge — LAB</div>
 
-  <div class="card">
-    <p class="ok">GitHub Portal Reachability: PASS</p>
-    <p><b>Mode:</b> LAB — DUAL ROLE APM + AQS</p>
-    <p class="warn">Mutation POSTs are single-attempt only. Ambiguous responses are resolved by authoritative GET readback. No blind retry.</p>
-  </div>
+  <section class="card">
+    <div class="ok">Portal mode: GENERIC</div>
+    <p class="warn">Mutation POSTs are single-attempt only. If a response is ambiguous, the Portal performs authoritative session readback and does not blind-retry.</p>
+    <p class="muted">Production changes are prohibited in this LAB portal.</p>
+  </section>
 
-  <div class="card">
-    <h3>Current LAB-006 Authoritative State</h3>
-    <p class="muted">This read-only state is available even without a Worker token.</p>
-    <pre id="publicState">Reading current task state...</pre>
-  </div>
-
-  <div class="card">
-    <h3>Expected Worker Identity</h3>
-    <div class="grid">
-      <div><b>Task ID:</b> LAB-006</div>
-      <div><b>Revision:</b> 0</div>
+  <section class="card">
+    <h3>Authoritative Session</h3>
+    <div id="sessionSummary" class="warn">Waiting for Worker token...</div>
+    <div id="identityGrid" class="grid hidden"></div>
+    <div id="actionsBox" class="hidden">
+      <p><b>Allowed actions:</b> <span id="allowedActions"></span></p>
     </div>
-    <p><b>Worker Role:</b> <span id="roleDisplay">Determined from signed Worker session</span></p>
-  </div>
+    <pre id="sessionRaw">No session loaded.</pre>
+  </section>
 
-  <div class="card">
-    <h3>Authoritative Session Read</h3>
-    <pre id="sessionResult">Waiting for Worker token...</pre>
-    <p id="sessionSummary" class="warn">Session validation not started.</p>
-  </div>
-
-  <div id="apmPanel" class="hidden">
-    <div class="card">
-      <h3>APM Claim / Resume</h3>
-      <p>INITIAL APM sessions may claim only from READY. RESUME sessions never re-claim.</p>
-      <button id="apmClaimButton" type="button" disabled>CLAIM TASK</button>
-      <pre id="apmClaimResult">APM Claim not attempted.</pre>
+  <section class="card hidden" id="taskCard">
+    <h3>Task Instruction</h3>
+    <pre id="taskInstruction"></pre>
+    <div id="inputReferencesWrap" class="hidden">
+      <h3>Input References</h3>
+      <pre id="inputReferences"></pre>
     </div>
+  </section>
 
-    <div class="card">
-      <h3>Task Instruction</h3>
-      <pre id="apmInstruction">Instruction appears after a valid active APM session is confirmed.</pre>
-    </div>
+  <section class="card hidden" id="claimCard">
+    <h3>Claim Work</h3>
+    <p>This action is available only when the authoritative session reports <code>CLAIM</code>.</p>
+    <button id="claimButton" type="button">CLAIM</button>
+    <pre id="claimResult">Claim not attempted.</pre>
+  </section>
 
-    <div class="card">
-      <h3>APM Final Result</h3>
-      <textarea id="apmResultText" disabled placeholder="Final Result"></textarea>
-      <p><button id="apmSubmitButton" type="button" disabled>SUBMIT RESULT</button></p>
-      <pre id="apmSubmitResult">APM Submit not attempted.</pre>
-    </div>
-  </div>
+  <section class="card hidden" id="executionCard">
+    <h3>Execution Submission</h3>
+    <label for="resultSummary">Result summary</label>
+    <textarea id="resultSummary" placeholder="Briefly summarize the completed work."></textarea>
 
-  <div id="aqsPanel" class="hidden">
-    <div class="card">
-      <h3>AQS QA Claim</h3>
-      <p>AQS may claim only when the authoritative task is READY_FOR_QA with an Output artifact and no existing claim/lock.</p>
-      <button id="qaClaimButton" type="button" disabled>CLAIM QA</button>
-      <pre id="qaClaimResult">QA Claim not attempted.</pre>
-    </div>
+    <div id="artifactInputs"></div>
 
-    <div class="card">
-      <h3>QA Source Material</h3>
-      <p><b>Task Instruction</b></p>
-      <pre id="qaInstruction">Instruction appears after the AQS session is validated.</pre>
-      <p><b>Source Output Artifact</b></p>
-      <p id="qaOutputLink">Output link not available yet.</p>
-      <p class="warn">AQS must independently open and review the source Output artifact before submitting a verdict.</p>
-    </div>
+    <button id="submitButton" type="button">SUBMIT RESULT</button>
+    <pre id="submitResult">Submit not attempted.</pre>
+  </section>
 
-    <div class="card">
-      <h3>AQS Verdict</h3>
-      <p>Allowed verdicts: <b>APPROVED</b> or <b>NEEDS_REVISION</b>.</p>
-      <textarea id="qaNotes" disabled placeholder="QA notes — explain the independent review and verdict"></textarea>
-      <p>
-        <button id="qaApproveButton" type="button" disabled>APPROVED</button>
-        <button id="qaRevisionButton" type="button" disabled>NEEDS_REVISION</button>
-      </p>
-      <pre id="qaSubmitResult">QA Submit not attempted.</pre>
-    </div>
-  </div>
+  <section class="card hidden" id="qaCard">
+    <h3>Independent QA</h3>
+    <div id="sourceArtifacts"></div>
 
-  <div class="card">
+    <label for="qaNotes">QA notes</label>
+    <textarea id="qaNotes" placeholder="At least 30 characters. Explain the independent review and verdict."></textarea>
+
+    <details>
+      <summary>Optional QA artifact</summary>
+      <div class="artifact">
+        <label for="qaArtifactFileName">File name</label>
+        <input id="qaArtifactFileName" placeholder="qa-report.txt or qa-report.docx" />
+
+        <label for="qaArtifactUrl">HTTPS URL</label>
+        <input id="qaArtifactUrl" placeholder="https://..." />
+
+        <label for="qaArtifactBytes">Bytes</label>
+        <input id="qaArtifactBytes" type="number" min="0" value="0" />
+
+        <label for="qaArtifactSha">SHA256 (optional)</label>
+        <input id="qaArtifactSha" placeholder="64 hex characters, optional" />
+
+        <label for="qaArtifactType">Artifact type</label>
+        <input id="qaArtifactType" value="QA_REPORT" />
+      </div>
+    </details>
+
+    <button id="qaApproveButton" type="button">APPROVE</button>
+    <button id="qaRevisionButton" class="danger" type="button">NEEDS REVISION</button>
+    <pre id="qaResult">QA submit not attempted.</pre>
+  </section>
+
+  <section class="card hidden" id="heartbeatCard">
+    <h3>Heartbeat</h3>
+    <button id="heartbeatButton" class="secondary" type="button">SEND HEARTBEAT</button>
+    <pre id="heartbeatResult">Heartbeat not attempted.</pre>
+  </section>
+
+  <section class="card">
     <h3>Authoritative Readback</h3>
     <pre id="readbackResult">No mutation has been attempted.</pre>
-  </div>
+  </section>
 
-  <div class="card">
-    <h3>Final Worker Status</h3>
-    <pre id="finalStatus">READ-ONLY MODE — WAITING FOR WORKER TOKEN</pre>
-  </div>
+  <section class="card">
+    <h3>Worker Status</h3>
+    <pre id="finalStatus">READ-ONLY — WAITING FOR WORKER TOKEN</pre>
+  </section>
+</main>
 
-  <script>
-    const GATEWAY='https://script.google.com/macros/s/AKfycbzu9nNZjPl9cMPdLVvkZJR3cLhMEewZeirtZaknvyvfk95OLTk44LA-CAU4XvmrZIc/exec';
-    const EXPECTED=Object.freeze({taskId:'LAB-006',revision:0,roles:['APM','AQS']});
-    const READ_MAX_ATTEMPTS=4;
-    const READ_RETRY_DELAY_MS=1200;
-    const MIN_APM_RESULT_CHARS=80;
-    const MIN_QA_NOTES_CHARS=30;
+<script>
+'use strict';
 
-    let workerToken='';
-    let sessionSnapshot=null;
-    let workerRole='';
-    let apmClaimAttempted=false;
-    let apmSubmitAttempted=false;
-    let qaClaimAttempted=false;
-    let qaSubmitAttempted=false;
+const GATEWAY = 'https://script.google.com/macros/s/AKfycbxiBdKrdBbo-qBB4A8RlE31f54Fd6GCHuo4_Md1QvyhMtv6EM5Y_T_sJ3i_ZUTQaA/exec';
+const READ_MAX_ATTEMPTS = 4;
+const READ_RETRY_DELAY_MS = 1200;
 
-    const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
-    const up=v=>String(v||'').trim().toUpperCase();
-    function withCacheBuster(url,attempt){const sep=url.includes('?')?'&':'?';return url+sep+'_cb='+Date.now()+'-'+attempt;}
-    function getTokenFromFragment(){const raw=window.location.hash||'';if(!raw.startsWith('#'))return'';return String(new URLSearchParams(raw.substring(1)).get('token')||'').trim();}
-    function removeTokenFromVisibleUrl(){if(window.location.hash)history.replaceState(null,document.title,window.location.pathname+window.location.search);}
+let workerToken = '';
+let session = null;
+let mutationBlocked = false;
 
-    async function readJsonWithRetry(baseUrl,label){
-      const attempts=[];
-      for(let attempt=1;attempt<=READ_MAX_ATTEMPTS;attempt++){
-        const url=withCacheBuster(baseUrl,attempt);
-        try{
-          const response=await fetch(url,{method:'GET',redirect:'follow',cache:'no-store',headers:{Accept:'application/json,text/plain,*/*'}});
-          const text=await response.text();
-          let parsed;
-          try{parsed=JSON.parse(text);}catch(e){
-            attempts.push({attempt,httpStatus:response.status,result:'BAD_JSON',preview:text.substring(0,220)});
-            if(attempt<READ_MAX_ATTEMPTS){await sleep(READ_RETRY_DELAY_MS*attempt);continue;}
-            throw{message:label+'_BAD_JSON_AFTER_'+READ_MAX_ATTEMPTS+'_ATTEMPTS',attempts};
-          }
-          if(!response.ok){
-            attempts.push({attempt,httpStatus:response.status,result:'HTTP_ERROR',body:parsed});
-            if(attempt<READ_MAX_ATTEMPTS){await sleep(READ_RETRY_DELAY_MS*attempt);continue;}
-            throw{message:label+'_HTTP_'+response.status+'_AFTER_'+READ_MAX_ATTEMPTS+'_ATTEMPTS',attempts};
-          }
-          attempts.push({attempt,httpStatus:response.status,result:'SUCCESS'});
-          return{data:parsed,attempts,successAttempt:attempt};
-        }catch(err){
-          if(err&&err.attempts)throw err;
-          attempts.push({attempt,result:'FETCH_ERROR',error:err&&err.message?err.message:String(err)});
-          if(attempt<READ_MAX_ATTEMPTS){await sleep(READ_RETRY_DELAY_MS*attempt);continue;}
-          throw{message:label+'_FETCH_FAILED_AFTER_'+READ_MAX_ATTEMPTS+'_ATTEMPTS',attempts};
+const $ = id => document.getElementById(id);
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+const clean = v => String(v == null ? '' : v).trim();
+const hasAction = action => !!(session && Array.isArray(session.allowedActions) && session.allowedActions.includes(action));
+
+function requestId(prefix){
+  if (window.crypto && crypto.randomUUID) return prefix + '-' + crypto.randomUUID();
+  return prefix + '-' + Date.now() + '-' + Math.random().toString(36).slice(2, 12);
+}
+
+function tokenFromFragment(){
+  const raw = window.location.hash || '';
+  if (!raw.startsWith('#')) return '';
+  return clean(new URLSearchParams(raw.slice(1)).get('token'));
+}
+
+function removeTokenFromVisibleUrl(){
+  if (window.location.hash){
+    history.replaceState(null, document.title, window.location.pathname + window.location.search);
+  }
+}
+
+function cacheBusted(url, attempt){
+  const sep = url.includes('?') ? '&' : '?';
+  return url + sep + '_cb=' + Date.now() + '-' + attempt;
+}
+
+async function readJsonWithRetry(baseUrl, label){
+  const attempts = [];
+  for (let attempt = 1; attempt <= READ_MAX_ATTEMPTS; attempt++){
+    try{
+      const response = await fetch(cacheBusted(baseUrl, attempt), {
+        method: 'GET',
+        redirect: 'follow',
+        cache: 'no-store',
+        headers: {Accept:'application/json,text/plain,*/*'}
+      });
+      const text = await response.text();
+      let parsed;
+      try{
+        parsed = JSON.parse(text);
+      }catch(err){
+        attempts.push({attempt,httpStatus:response.status,result:'BAD_JSON',preview:text.slice(0,220)});
+        if (attempt < READ_MAX_ATTEMPTS){
+          await sleep(READ_RETRY_DELAY_MS * attempt);
+          continue;
         }
+        throw {message:label + '_BAD_JSON', attempts};
       }
-      throw{message:label+'_UNKNOWN_FAILURE',attempts};
-    }
-
-    async function readPublicState(){
-      const box=document.getElementById('publicState');
-      try{
-        const read=await readJsonWithRetry(GATEWAY+'?action=get_task&taskId=LAB-006','PUBLIC_TASK_STATE');
-        const t=read.data&&read.data.task;
-        if(!read.data||read.data.ok!==true||!t){box.textContent=JSON.stringify(read.data,null,2);return;}
-        box.textContent=JSON.stringify({
-          taskId:t.taskId,status:t.status,revision:t.revision,claimedBy:t.claimedBy||'',lockIdPresent:!!String(t.lockId||'').trim(),
-          nextActor:t.nextActor,qaResult:t.qaResult||'',outputLinkPresent:!!String(t.outputLink||'').trim(),outputLink:t.outputLink||'',lastUpdate:t.lastUpdate||''
-        },null,2);
-      }catch(err){box.textContent=JSON.stringify({error:err&&err.message?err.message:String(err)},null,2);}
-    }
-
-    function sessionMatchesExpected(s){
-      return!!(s&&s.ok&&s.taskId===EXPECTED.taskId&&EXPECTED.roles.includes(up(s.role))&&Number(s.revision)===EXPECTED.revision&&s.task&&s.task.taskId===EXPECTED.taskId&&Number(s.task.revision)===EXPECTED.revision);
-    }
-    async function readSession(label){return readJsonWithRetry(GATEWAY+'?action=get_session&token='+encodeURIComponent(workerToken),label);}
-
-    function apmClaimPreconditions(s){return!!(sessionMatchesExpected(s)&&up(s.role)==='APM'&&!s.tokenExpired&&up(s.sessionMode||'INITIAL')==='INITIAL'&&up(s.task.status)==='READY'&&up(s.task.nextActor)==='APM'&&!String(s.task.claimedBy||'').trim()&&!String(s.task.lockId||'').trim());}
-    function activeApmSession(s){return!!(sessionMatchesExpected(s)&&up(s.role)==='APM'&&!s.tokenExpired&&up(s.task.status)==='IN_PROGRESS'&&up(s.task.claimedBy)==='APM'&&up(s.task.nextActor)==='APM'&&String(s.task.lockId||'').trim()&&String(s.lockId||'').trim()&&String(s.task.lockId||'').trim()===String(s.lockId||'').trim()&&!String(s.task.outputLink||'').trim());}
-    function apmSubmissionConfirmed(s){return!!(sessionMatchesExpected(s)&&up(s.role)==='APM'&&up(s.task.status)==='READY_FOR_QA'&&up(s.task.nextActor)==='AQS'&&!String(s.task.claimedBy||'').trim()&&!String(s.task.lockId||'').trim()&&String(s.task.outputLink||'').trim());}
-
-    function qaClaimPreconditions(s){return!!(sessionMatchesExpected(s)&&up(s.role)==='AQS'&&!s.tokenExpired&&up(s.sessionMode)==='QA'&&up(s.task.status)==='READY_FOR_QA'&&up(s.task.nextActor)==='AQS'&&!String(s.task.claimedBy||'').trim()&&!String(s.task.lockId||'').trim()&&String(s.task.outputLink||'').trim());}
-    function activeQaSession(s){return!!(sessionMatchesExpected(s)&&up(s.role)==='AQS'&&!s.tokenExpired&&up(s.task.status)==='QA_IN_PROGRESS'&&up(s.task.claimedBy)==='AQS'&&up(s.task.nextActor)==='AQS'&&String(s.task.lockId||'').trim()&&String(s.lockId||'').trim()&&String(s.task.lockId||'').trim()===String(s.lockId||'').trim()&&String(s.task.outputLink||'').trim());}
-    function qaApprovalConfirmed(s){return!!(sessionMatchesExpected(s)&&up(s.role)==='AQS'&&up(s.task.status)==='APPROVED'&&up(s.task.qaResult)==='APPROVED'&&up(s.task.nextActor)==='PROJECT_OWNER'&&!String(s.task.claimedBy||'').trim()&&!String(s.task.lockId||'').trim()&&String(s.task.outputLink||'').trim());}
-    function qaRevisionConfirmed(s){return!!(sessionMatchesExpected(s)&&up(s.role)==='AQS'&&up(s.task.status)==='NEEDS_REVISION'&&up(s.task.qaResult)==='NEEDS_REVISION'&&up(s.task.nextActor)==='APM'&&!String(s.task.claimedBy||'').trim()&&!String(s.task.lockId||'').trim()&&String(s.task.outputLink||'').trim());}
-
-    function showOutputLink(s){
-      const p=document.getElementById('qaOutputLink');
-      const url=String(s&&s.task&&s.task.outputLink||'').trim();
-      if(!url){p.textContent='Output link is missing.';return;}
-      p.innerHTML='';const a=document.createElement('a');a.href=url;a.target='_blank';a.rel='noopener noreferrer';a.textContent=url;p.appendChild(a);
-    }
-    function enableApmExecution(s){document.getElementById('apmInstruction').textContent=String(s.task.taskInstruction||'');document.getElementById('apmResultText').disabled=false;document.getElementById('apmSubmitButton').disabled=false;}
-    function disableApmExecution(){document.getElementById('apmResultText').disabled=true;document.getElementById('apmSubmitButton').disabled=true;}
-    function enableQaExecution(s){document.getElementById('qaInstruction').textContent=String(s.task.taskInstruction||'');showOutputLink(s);document.getElementById('qaNotes').disabled=false;document.getElementById('qaApproveButton').disabled=false;document.getElementById('qaRevisionButton').disabled=false;}
-    function disableQaExecution(){document.getElementById('qaNotes').disabled=true;document.getElementById('qaApproveButton').disabled=true;document.getElementById('qaRevisionButton').disabled=true;}
-
-    async function initializePortal(){
-      await readPublicState();
-      const sessionBox=document.getElementById('sessionResult'),summary=document.getElementById('sessionSummary'),finalStatus=document.getElementById('finalStatus');
-      workerToken=getTokenFromFragment();removeTokenFromVisibleUrl();
-      if(!workerToken){sessionBox.textContent='TOKEN_MISSING — READ-ONLY PORTAL MODE';summary.textContent='No Worker token present. Current authoritative LAB-006 state is shown above.';summary.className='warn';finalStatus.textContent='READ-ONLY MODE — NO MUTATION AVAILABLE';return;}
-      try{
-        const read=await readSession('INITIAL_SESSION');sessionSnapshot=read.data;
-        sessionBox.textContent=JSON.stringify({successAttempt:read.successAttempt,attempts:read.attempts,response:read.data},null,2);
-        if(!sessionMatchesExpected(sessionSnapshot)){summary.textContent='Session validation failed: Task ID / Role / Revision mismatch.';summary.className='error';finalStatus.textContent='WORKER BLOCKED — SESSION_MISMATCH';return;}
-        if(sessionSnapshot.tokenExpired){summary.textContent='Session validation failed: Worker token expired.';summary.className='error';finalStatus.textContent='WORKER BLOCKED — TOKEN_EXPIRED';return;}
-        workerRole=up(sessionSnapshot.role);document.getElementById('roleDisplay').textContent=workerRole;
-
-        if(workerRole==='APM'){
-          document.getElementById('apmPanel').classList.remove('hidden');
-          if(apmSubmissionConfirmed(sessionSnapshot)){summary.textContent='APM result is already authoritatively submitted.';summary.className='ok';finalStatus.textContent='APM COMPLETE — READY_FOR_QA';disableApmExecution();return;}
-          if(activeApmSession(sessionSnapshot)){summary.textContent=up(sessionSnapshot.sessionMode)==='RESUME'?'APM RESUME SESSION VALID — EXISTING CLAIM/LOCK PRESERVED':'APM CLAIMED SESSION VALID';summary.className='ok';enableApmExecution(sessionSnapshot);finalStatus.textContent='APM ACTIVE — READY TO EXECUTE/SUBMIT';return;}
-          if(apmClaimPreconditions(sessionSnapshot)){summary.textContent='APM INITIAL SESSION VALID — CLAIM PRECONDITIONS SATISFIED';summary.className='ok';document.getElementById('apmClaimButton').disabled=false;finalStatus.textContent='APM READY FOR SINGLE CLAIM ATTEMPT';return;}
-          summary.textContent='APM session valid, but authoritative preconditions are not satisfied.';summary.className='error';finalStatus.textContent='APM BLOCKED — PRECONDITION_FAILED';return;
+      if (!response.ok){
+        attempts.push({attempt,httpStatus:response.status,result:'HTTP_ERROR',body:parsed});
+        if (attempt < READ_MAX_ATTEMPTS){
+          await sleep(READ_RETRY_DELAY_MS * attempt);
+          continue;
         }
-
-        if(workerRole==='AQS'){
-          document.getElementById('aqsPanel').classList.remove('hidden');document.getElementById('qaInstruction').textContent=String(sessionSnapshot.task.taskInstruction||'');showOutputLink(sessionSnapshot);
-          if(qaApprovalConfirmed(sessionSnapshot)){summary.textContent='AQS verdict already authoritatively recorded: APPROVED.';summary.className='ok';finalStatus.textContent='AQS COMPLETE — APPROVED → PROJECT_OWNER';disableQaExecution();return;}
-          if(qaRevisionConfirmed(sessionSnapshot)){summary.textContent='AQS verdict already authoritatively recorded: NEEDS_REVISION.';summary.className='warn';finalStatus.textContent='AQS COMPLETE — NEEDS_REVISION → APM';disableQaExecution();return;}
-          if(activeQaSession(sessionSnapshot)){summary.textContent='AQS QA SESSION ACTIVE — CLAIM/LOCK CONFIRMED';summary.className='ok';enableQaExecution(sessionSnapshot);finalStatus.textContent='AQS ACTIVE — INDEPENDENT REVIEW + VERDICT REQUIRED';return;}
-          if(qaClaimPreconditions(sessionSnapshot)){summary.textContent='AQS SESSION VALID — QA CLAIM PRECONDITIONS SATISFIED';summary.className='ok';document.getElementById('qaClaimButton').disabled=false;finalStatus.textContent='AQS READY FOR SINGLE QA CLAIM ATTEMPT';return;}
-          summary.textContent='AQS session valid, but authoritative QA preconditions are not satisfied.';summary.className='error';finalStatus.textContent='AQS BLOCKED — QA_PRECONDITION_FAILED';return;
-        }
-      }catch(err){sessionBox.textContent=JSON.stringify({error:err&&err.message?err.message:String(err),attempts:err&&err.attempts?err.attempts:[]},null,2);summary.textContent='Session read failed.';summary.className='error';finalStatus.textContent='WORKER BLOCKED — SESSION_READ_FAILED';}
+        throw {message:label + '_HTTP_' + response.status, attempts};
+      }
+      attempts.push({attempt,httpStatus:response.status,result:'SUCCESS'});
+      return {data:parsed, attempts, successAttempt:attempt};
+    }catch(err){
+      if (err && err.attempts) throw err;
+      attempts.push({attempt,result:'FETCH_ERROR',error:err && err.message ? err.message : String(err)});
+      if (attempt < READ_MAX_ATTEMPTS){
+        await sleep(READ_RETRY_DELAY_MS * attempt);
+        continue;
+      }
+      throw {message:label + '_FETCH_FAILED', attempts};
     }
+  }
+}
 
-    async function authoritativeReadback(reason,mode){
-      const box=document.getElementById('readbackResult'),finalStatus=document.getElementById('finalStatus');
-      try{
-        const read=await readSession(mode.toUpperCase()+'_READBACK');const s=read.data;
-        box.textContent=JSON.stringify({reason,successAttempt:read.successAttempt,attempts:read.attempts,response:s},null,2);
-        await readPublicState();
-        if(mode==='apm_claim'&&activeApmSession(s)){enableApmExecution(s);finalStatus.textContent='APM CLAIM CONFIRMED — IN_PROGRESS';return true;}
-        if(mode==='apm_submit'&&apmSubmissionConfirmed(s)){disableApmExecution();finalStatus.textContent='APM SUBMISSION PASSED — READY_FOR_QA → AQS';return true;}
-        if(mode==='qa_claim'&&activeQaSession(s)){enableQaExecution(s);finalStatus.textContent='AQS QA CLAIM CONFIRMED — QA_IN_PROGRESS';return true;}
-        if(mode==='qa_submit'&&qaApprovalConfirmed(s)){disableQaExecution();finalStatus.textContent='AQS QA PASSED — APPROVED → PROJECT_OWNER';return true;}
-        if(mode==='qa_submit'&&qaRevisionConfirmed(s)){disableQaExecution();finalStatus.textContent='AQS QA COMPLETE — NEEDS_REVISION → APM';return true;}
-        finalStatus.textContent=mode.toUpperCase()+' NOT CONFIRMED BY AUTHORITATIVE READBACK\nNo blind retry is allowed.';return false;
-      }catch(err){box.textContent=JSON.stringify({reason,error:err&&err.message?err.message:String(err),attempts:err&&err.attempts?err.attempts:[]},null,2);finalStatus.textContent='MUTATION OUTCOME UNKNOWN — AUTHORITATIVE READBACK FAILED\nDO NOT RETRY BLINDLY';return false;}
+async function singleAttemptPost(payload, label){
+  const diagnostic = {label, attemptedAt:new Date().toISOString(), requestId:payload.requestId || null};
+  try{
+    const response = await fetch(GATEWAY, {
+      method:'POST',
+      redirect:'follow',
+      headers:{'Content-Type':'text/plain;charset=utf-8','Accept':'application/json,text/plain,*/*'},
+      body:JSON.stringify(payload)
+    });
+    diagnostic.httpStatus = response.status;
+    const text = await response.text();
+    diagnostic.responsePreview = text.slice(0,400);
+    try{
+      diagnostic.body = JSON.parse(text);
+    }catch(err){
+      diagnostic.ambiguous = true;
+      diagnostic.reason = 'BAD_JSON';
+      return diagnostic;
     }
-
-    async function postMutationOnce(payload,resultElement,readbackMode){
-      const resultBox=document.getElementById(resultElement);
-      try{
-        const response=await fetch(GATEWAY,{method:'POST',redirect:'follow',cache:'no-store',headers:{'Content-Type':'text/plain;charset=UTF-8'},body:JSON.stringify(payload)});
-        const text=await response.text();let parsed=null;
-        try{parsed=JSON.parse(text);}catch(e){resultBox.textContent=JSON.stringify({outcome:'AMBIGUOUS_RESPONSE',httpStatus:response.status,reason:'BAD_JSON',preview:text.substring(0,300),blindRetryPerformed:false},null,2);await authoritativeReadback('POST_RETURNED_BAD_JSON',readbackMode);return;}
-        resultBox.textContent=JSON.stringify({httpStatus:response.status,response:parsed,blindRetryPerformed:false},null,2);
-        if(response.ok&&parsed&&parsed.ok===true){await authoritativeReadback('POST_REPORTED_SUCCESS',readbackMode);return;}
-        if(parsed&&parsed.ok===false){document.getElementById('finalStatus').textContent='MUTATION REJECTED DEFINITIVELY\nCode: '+String(parsed.code||'UNKNOWN')+'\nNo blind retry performed.';return;}
-        await authoritativeReadback('POST_RESPONSE_NOT_CONCLUSIVE',readbackMode);
-      }catch(err){resultBox.textContent=JSON.stringify({outcome:'TRANSPORT_AMBIGUOUS',error:err&&err.message?err.message:String(err),blindRetryPerformed:false},null,2);await authoritativeReadback('POST_TRANSPORT_EXCEPTION',readbackMode);}
+    if (!response.ok){
+      diagnostic.ambiguous = true;
+      diagnostic.reason = 'HTTP_' + response.status;
+      return diagnostic;
     }
+    diagnostic.ambiguous = false;
+    return diagnostic;
+  }catch(err){
+    diagnostic.ambiguous = true;
+    diagnostic.reason = 'FETCH_ERROR';
+    diagnostic.error = err && err.message ? err.message : String(err);
+    return diagnostic;
+  }
+}
 
-    async function apmClaimOnce(){if(apmClaimAttempted)return;apmClaimAttempted=true;document.getElementById('apmClaimButton').disabled=true;await postMutationOnce({action:'claim_task',token:workerToken,taskId:EXPECTED.taskId,role:'APM',revision:EXPECTED.revision},'apmClaimResult','apm_claim');}
-    async function apmSubmitOnce(){if(apmSubmitAttempted)return;const resultText=String(document.getElementById('apmResultText').value||'').trim();if(resultText.length<MIN_APM_RESULT_CHARS){document.getElementById('apmSubmitResult').textContent='RESULT_TOO_SHORT — minimum '+MIN_APM_RESULT_CHARS+' characters.';return;}apmSubmitAttempted=true;disableApmExecution();await postMutationOnce({action:'submit_result',token:workerToken,taskId:EXPECTED.taskId,role:'APM',revision:EXPECTED.revision,resultText},'apmSubmitResult','apm_submit');}
-    async function qaClaimOnce(){if(qaClaimAttempted)return;qaClaimAttempted=true;document.getElementById('qaClaimButton').disabled=true;await postMutationOnce({action:'qa_claim_task',token:workerToken,taskId:EXPECTED.taskId,role:'AQS',revision:EXPECTED.revision},'qaClaimResult','qa_claim');}
-    async function qaSubmitOnce(verdict){if(qaSubmitAttempted)return;const qaNotes=String(document.getElementById('qaNotes').value||'').trim();if(qaNotes.length<MIN_QA_NOTES_CHARS){document.getElementById('qaSubmitResult').textContent='QA_NOTES_TOO_SHORT — minimum '+MIN_QA_NOTES_CHARS+' characters.';return;}qaSubmitAttempted=true;disableQaExecution();await postMutationOnce({action:'qa_submit',token:workerToken,taskId:EXPECTED.taskId,role:'AQS',revision:EXPECTED.revision,verdict,qaNotes},'qaSubmitResult','qa_submit');}
+async function readSession(label){
+  if (!workerToken) throw new Error('TOKEN_MISSING');
+  const read = await readJsonWithRetry(
+    GATEWAY + '?action=get_session&token=' + encodeURIComponent(workerToken),
+    label
+  );
+  if (!read.data || read.data.ok !== true || !read.data.session){
+    throw {message:label + '_SESSION_NOT_OK', response:read.data, attempts:read.attempts};
+  }
+  session = read.data.session;
+  return read;
+}
 
-    document.getElementById('apmClaimButton').addEventListener('click',apmClaimOnce);
-    document.getElementById('apmSubmitButton').addEventListener('click',apmSubmitOnce);
-    document.getElementById('qaClaimButton').addEventListener('click',qaClaimOnce);
-    document.getElementById('qaApproveButton').addEventListener('click',()=>qaSubmitOnce('APPROVED'));
-    document.getElementById('qaRevisionButton').addEventListener('click',()=>qaSubmitOnce('NEEDS_REVISION'));
+function renderIdentity(){
+  if (!session) return;
+  const fields = [
+    ['Project ID', session.projectId],
+    ['Task ID', session.taskId],
+    ['Task Title', session.taskTitle],
+    ['Task Type', session.taskType],
+    ['Role', session.role],
+    ['Role Type', session.roleType],
+    ['Worker ID', session.workerId],
+    ['Revision', session.revision],
+    ['Status', session.status],
+    ['Next Actor', session.nextActor],
+    ['Expected Output Type', session.expectedOutputType],
+    ['Expected Output Count', session.expectedOutputCount],
+    ['Lock Present', !!clean(session.lockId)]
+  ];
+  $('identityGrid').innerHTML = fields.map(([k,v]) =>
+    '<div class="kv"><b>' + escapeHtml(k) + '</b>' + escapeHtml(String(v == null ? '' : v)) + '</div>'
+  ).join('');
+  $('identityGrid').classList.remove('hidden');
+  $('actionsBox').classList.remove('hidden');
+  $('allowedActions').innerHTML = (session.allowedActions || []).length
+    ? session.allowedActions.map(a => '<span class="pill">' + escapeHtml(a) + '</span>').join('')
+    : '<span class="muted">none</span>';
+}
 
-    initializePortal();
-  </script>
+function renderTask(){
+  if (!session) return;
+  $('taskCard').classList.remove('hidden');
+  $('taskInstruction').textContent = clean(session.taskInstruction) || '(empty)';
+  if (clean(session.inputReferences)){
+    $('inputReferences').textContent = session.inputReferences;
+    $('inputReferencesWrap').classList.remove('hidden');
+  }else{
+    $('inputReferencesWrap').classList.add('hidden');
+  }
+}
+
+function renderSourceArtifacts(){
+  const list = Array.isArray(session && session.artifacts) ? session.artifacts : [];
+  const primary = clean(session && session.primaryOutputLink);
+  const parts = [];
+  if (primary){
+    parts.push('<p><b>Primary output:</b> <a target="_blank" rel="noopener noreferrer" href="' +
+      escapeAttr(primary) + '">' + escapeHtml(primary) + '</a></p>');
+  }
+  if (!list.length){
+    parts.push('<p class="muted">No registered artifacts are visible for this revision.</p>');
+  }else{
+    parts.push('<div>');
+    list.forEach(a => {
+      parts.push(
+        '<div class="artifact">' +
+        '<b>' + escapeHtml(a.fileName || a.artifactId || 'Artifact') + '</b><br>' +
+        'Type: ' + escapeHtml(a.artifactType || '') + '<br>' +
+        'Produced by: ' + escapeHtml(a.producedByRole || '') + ' / ' + escapeHtml(a.producedByWorker || '') + '<br>' +
+        (a.url ? '<a target="_blank" rel="noopener noreferrer" href="' + escapeAttr(a.url) + '">' + escapeHtml(a.url) + '</a>' : '') +
+        '</div>'
+      );
+    });
+    parts.push('</div>');
+  }
+  $('sourceArtifacts').innerHTML = parts.join('');
+}
+
+function renderArtifactInputs(){
+  const count = Math.max(1, Number(session.expectedOutputCount || 1));
+  const expectedType = clean(session.expectedOutputType) || '';
+  const wrap = $('artifactInputs');
+  const chunks = ['<h3>Output Artifacts</h3>'];
+  for (let i=0;i<count;i++){
+    chunks.push(
+      '<div class="artifact" data-artifact-index="' + i + '">' +
+      '<b>Artifact ' + (i+1) + ' of ' + count + '</b>' +
+      '<label>File name</label><input data-field="fileName" placeholder="output.docx" />' +
+      '<label>HTTPS URL</label><input data-field="url" placeholder="https://..." />' +
+      '<label>Bytes</label><input data-field="bytes" type="number" min="0" value="0" />' +
+      '<label>SHA256 (optional)</label><input data-field="sha256" placeholder="64 hex characters, optional" />' +
+      '<label>Artifact type</label><input data-field="type" value="' + escapeAttr(expectedType) + '" />' +
+      (i===0 ? '<label><input data-field="isPrimary" type="checkbox" checked style="width:auto;margin-right:8px" />Primary artifact</label>' : '') +
+      '</div>'
+    );
+  }
+  wrap.innerHTML = chunks.join('');
+}
+
+function collectArtifacts(){
+  return Array.from(document.querySelectorAll('[data-artifact-index]')).map((node, i) => {
+    const get = name => node.querySelector('[data-field="' + name + '"]');
+    const primary = get('isPrimary');
+    return {
+      type: clean(get('type').value),
+      fileName: clean(get('fileName').value),
+      url: clean(get('url').value),
+      sha256: clean(get('sha256').value).toLowerCase(),
+      bytes: Number(get('bytes').value || 0),
+      isPrimary: primary ? !!primary.checked : false
+    };
+  });
+}
+
+function collectOptionalQaArtifacts(){
+  const url = clean($('qaArtifactUrl').value);
+  const fileName = clean($('qaArtifactFileName').value);
+  const type = clean($('qaArtifactType').value);
+  const sha256 = clean($('qaArtifactSha').value).toLowerCase();
+  const bytes = Number($('qaArtifactBytes').value || 0);
+  if (!url && !fileName && !sha256 && bytes === 0) return [];
+  return [{type,fileName,url,sha256,bytes,isPrimary:false}];
+}
+
+function renderActions(){
+  if (!session) return;
+  ['claimCard','executionCard','qaCard','heartbeatCard'].forEach(id => $(id).classList.add('hidden'));
+
+  if (hasAction('CLAIM')){
+    $('claimCard').classList.remove('hidden');
+  }
+  if (hasAction('SUBMIT_RESULT')){
+    renderArtifactInputs();
+    $('executionCard').classList.remove('hidden');
+    $('heartbeatCard').classList.remove('hidden');
+  }
+  if (hasAction('QA_APPROVE') || hasAction('QA_NEEDS_REVISION')){
+    renderSourceArtifacts();
+    $('qaCard').classList.remove('hidden');
+    $('heartbeatCard').classList.remove('hidden');
+    $('qaApproveButton').disabled = !hasAction('QA_APPROVE');
+    $('qaRevisionButton').disabled = !hasAction('QA_NEEDS_REVISION');
+  }
+}
+
+function renderSession(read){
+  $('sessionSummary').textContent =
+    'Session valid — ' + session.role + ' / ' + session.taskId + ' / R' + session.revision;
+  $('sessionSummary').className = 'ok';
+  $('sessionRaw').textContent = JSON.stringify({
+    successAttempt: read.successAttempt,
+    attempts: read.attempts,
+    session
+  }, null, 2);
+  renderIdentity();
+  renderTask();
+  renderActions();
+
+  if ((session.allowedActions || []).length === 0){
+    $('finalStatus').textContent = 'NO MUTATION AVAILABLE — authoritative state: ' + session.status;
+  }else{
+    $('finalStatus').textContent = 'READY — use only the actions exposed by the authoritative session.';
+  }
+}
+
+async function authoritativeReadback(label){
+  try{
+    const read = await readSession(label);
+    $('readbackResult').textContent = JSON.stringify({
+      successAttempt:read.successAttempt,
+      attempts:read.attempts,
+      session:read.data.session
+    }, null, 2);
+    renderSession(read);
+    return read.data.session;
+  }catch(err){
+    mutationBlocked = true;
+    $('readbackResult').textContent = JSON.stringify({
+      error:err && err.message ? err.message : String(err),
+      detail:err
+    }, null, 2);
+    $('finalStatus').textContent =
+      'BLOCKED — authoritative readback failed after mutation. Do NOT repeat the mutation blindly.';
+    disableMutationButtons();
+    throw err;
+  }
+}
+
+function disableMutationButtons(){
+  ['claimButton','submitButton','qaApproveButton','qaRevisionButton','heartbeatButton'].forEach(id => {
+    if ($(id)) $(id).disabled = true;
+  });
+}
+
+async function mutateAndReadback(payload, label, outputId){
+  if (mutationBlocked) return;
+  disableMutationButtons();
+  const post = await singleAttemptPost(payload, label);
+  $(outputId).textContent = JSON.stringify(post, null, 2);
+
+  try{
+    await authoritativeReadback(label + '_READBACK');
+  }catch(err){
+    return;
+  }
+}
+
+async function claim(){
+  if (!session || !hasAction('CLAIM')) return;
+  await mutateAndReadback({
+    action:'claim',
+    token:workerToken,
+    taskId:session.taskId,
+    role:session.role,
+    revision:Number(session.revision),
+    requestId:requestId('claim')
+  }, 'CLAIM', 'claimResult');
+}
+
+async function heartbeat(){
+  if (!session || !clean(session.lockId)) return;
+  await mutateAndReadback({
+    action:'heartbeat',
+    token:workerToken,
+    taskId:session.taskId,
+    role:session.role,
+    revision:Number(session.revision),
+    lockId:session.lockId,
+    requestId:requestId('heartbeat')
+  }, 'HEARTBEAT', 'heartbeatResult');
+}
+
+async function submitResult(){
+  if (!session || !hasAction('SUBMIT_RESULT')) return;
+  const resultSummary = clean($('resultSummary').value);
+  if (!resultSummary){
+    $('submitResult').textContent = 'BLOCKED: Result summary is required.';
+    return;
+  }
+
+  const artifacts = collectArtifacts();
+  const missing = artifacts.findIndex(a => !a.type || !a.fileName || !a.url || !Number.isFinite(a.bytes) || a.bytes < 0);
+  if (missing >= 0){
+    $('submitResult').textContent = 'BLOCKED: Complete type, file name, HTTPS URL and non-negative bytes for artifact ' + (missing + 1) + '.';
+    return;
+  }
+
+  await mutateAndReadback({
+    action:'submit',
+    token:workerToken,
+    taskId:session.taskId,
+    role:session.role,
+    revision:Number(session.revision),
+    lockId:session.lockId,
+    resultSummary,
+    artifacts,
+    requestId:requestId('submit')
+  }, 'SUBMIT_RESULT', 'submitResult');
+}
+
+async function qaSubmit(verdict){
+  const actionNeeded = verdict === 'APPROVED' ? 'QA_APPROVE' : 'QA_NEEDS_REVISION';
+  if (!session || !hasAction(actionNeeded)) return;
+
+  const qaNotes = clean($('qaNotes').value);
+  if (qaNotes.length < 30){
+    $('qaResult').textContent = 'BLOCKED: QA notes must contain at least 30 characters.';
+    return;
+  }
+
+  const qaArtifacts = collectOptionalQaArtifacts();
+  if (qaArtifacts.length){
+    const a = qaArtifacts[0];
+    if (!a.type || !a.fileName || !a.url || !Number.isFinite(a.bytes) || a.bytes < 0){
+      $('qaResult').textContent = 'BLOCKED: The optional QA artifact is partially filled. Complete all required artifact fields or clear them.';
+      return;
+    }
+  }
+
+  await mutateAndReadback({
+    action:'qa_submit',
+    token:workerToken,
+    taskId:session.taskId,
+    role:session.role,
+    revision:Number(session.revision),
+    lockId:session.lockId,
+    verdict,
+    qaNotes,
+    qaArtifacts,
+    requestId:requestId('qa')
+  }, 'QA_' + verdict, 'qaResult');
+}
+
+function escapeHtml(value){
+  return String(value == null ? '' : value)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+function escapeAttr(value){ return escapeHtml(value); }
+
+async function initialize(){
+  workerToken = tokenFromFragment();
+  removeTokenFromVisibleUrl();
+
+  if (!workerToken){
+    $('sessionSummary').textContent = 'TOKEN_MISSING — read-only page.';
+    $('sessionSummary').className = 'warn';
+    $('finalStatus').textContent = 'READ-ONLY — NO WORKER TOKEN';
+    return;
+  }
+
+  try{
+    const read = await readSession('INITIAL_SESSION');
+    renderSession(read);
+  }catch(err){
+    $('sessionSummary').textContent = 'Session validation failed.';
+    $('sessionSummary').className = 'bad';
+    $('sessionRaw').textContent = JSON.stringify({
+      error:err && err.message ? err.message : String(err),
+      detail:err
+    }, null, 2);
+    $('finalStatus').textContent = 'BLOCKED — INVALID OR EXPIRED SESSION';
+    disableMutationButtons();
+  }
+}
+
+$('claimButton').addEventListener('click', claim);
+$('submitButton').addEventListener('click', submitResult);
+$('heartbeatButton').addEventListener('click', heartbeat);
+$('qaApproveButton').addEventListener('click', () => qaSubmit('APPROVED'));
+$('qaRevisionButton').addEventListener('click', () => qaSubmit('NEEDS_REVISION'));
+
+initialize();
+</script>
 </body>
 </html>
