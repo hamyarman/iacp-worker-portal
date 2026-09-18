@@ -3,11 +3,12 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>IACP Worker Portal — LAB-006</title>
+  <meta name="referrer" content="no-referrer" />
+  <title>IACP Worker Portal — LAB-006 Claim Test</title>
   <style>
     body {
       font-family: Arial, sans-serif;
-      max-width: 900px;
+      max-width: 920px;
       margin: 40px auto;
       padding: 0 18px;
       line-height: 1.55;
@@ -25,6 +26,19 @@
     .warn { color: #8a5a00; font-weight: 700; }
     .error { color: #a40000; font-weight: 700; }
     .muted { color: #666; }
+    button {
+      padding: 12px 20px;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+      border: 1px solid #888;
+      border-radius: 8px;
+      background: #fff;
+    }
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 0.55;
+    }
     code, pre {
       white-space: pre-wrap;
       word-break: break-word;
@@ -39,36 +53,59 @@
 
   <div class="card">
     <p class="ok">GitHub Portal Reachability: PASS</p>
-    <p>This page is a non-mutating LAB functional read probe.</p>
+    <p><b>Mode:</b> CLAIM-ONLY LAB TEST</p>
+    <p class="warn">This version can perform exactly one Claim mutation. Submit is disabled.</p>
   </div>
 
   <div class="card">
+    <h3>Expected Worker Identity</h3>
     <p><b>Task ID:</b> LAB-006</p>
     <p><b>Role:</b> APM</p>
     <p><b>Revision:</b> 0</p>
-    <p class="warn">READ-ONLY TEST — DO NOT CLAIM OR SUBMIT.</p>
   </div>
 
   <div class="card">
-    <h3>Automatic Gateway Read Test — TEST-003</h3>
-    <p class="muted">This page performs bounded read-only retries against the current IACP Apps Script Gateway. No mutation is performed.</p>
+    <h3>Authoritative Session Read</h3>
+    <pre id="sessionResult">Reading token/session...</pre>
+    <p id="sessionSummary" class="warn">Session validation in progress...</p>
+  </div>
 
-    <p><b>Health result:</b></p>
-    <pre id="healthResult">Testing...</pre>
+  <div class="card">
+    <h3>Claim Task</h3>
+    <p>Claim performs a single POST attempt only. It is never blindly retried.</p>
+    <button id="claimButton" type="button" disabled>CLAIM TASK</button>
+    <pre id="claimResult">Claim not attempted.</pre>
+  </div>
 
-    <p><b>Task result:</b></p>
-    <pre id="taskResult">Testing...</pre>
+  <div class="card">
+    <h3>Authoritative Readback</h3>
+    <pre id="readbackResult">No mutation has been attempted.</pre>
+  </div>
 
-    <p><b>Functional read output:</b></p>
-    <pre id="functionalOutput">Waiting for task read...</pre>
+  <div class="card">
+    <h3>Task Instruction</h3>
+    <pre id="instructionResult">Task must be successfully claimed before the instruction is shown here.</pre>
+  </div>
 
-    <p id="summary" class="warn">Gateway read test in progress...</p>
+  <div class="card">
+    <h3>Final Claim Test Status</h3>
+    <pre id="finalStatus">WAITING FOR SESSION VALIDATION</pre>
   </div>
 
   <script>
     const GATEWAY = 'https://script.google.com/macros/s/AKfycbzu9nNZjPl9cMPdLVvkZJR3cLhMEewZeirtZaknvyvfk95OLTk44LA-CAU4XvmrZIc/exec';
-    const MAX_ATTEMPTS = 3;
-    const RETRY_DELAY_MS = 1200;
+    const EXPECTED = Object.freeze({
+      taskId: 'LAB-006',
+      role: 'APM',
+      revision: 0
+    });
+
+    const READ_MAX_ATTEMPTS = 3;
+    const READ_RETRY_DELAY_MS = 1200;
+
+    let workerToken = '';
+    let sessionSnapshot = null;
+    let claimAttempted = false;
 
     function sleep(ms) {
       return new Promise(resolve => setTimeout(resolve, ms));
@@ -79,10 +116,23 @@
       return url + sep + '_cb=' + Date.now() + '-' + attempt;
     }
 
+    function getTokenFromFragment() {
+      const raw = window.location.hash || '';
+      if (!raw.startsWith('#')) return '';
+      const params = new URLSearchParams(raw.substring(1));
+      return String(params.get('token') || '').trim();
+    }
+
+    function removeTokenFromVisibleUrl() {
+      if (window.location.hash) {
+        history.replaceState(null, document.title, window.location.pathname + window.location.search);
+      }
+    }
+
     async function readJsonWithRetry(baseUrl, label) {
       const attempts = [];
 
-      for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      for (let attempt = 1; attempt <= READ_MAX_ATTEMPTS; attempt++) {
         const url = withCacheBuster(baseUrl, attempt);
 
         try {
@@ -90,183 +140,316 @@
             method: 'GET',
             redirect: 'follow',
             cache: 'no-store',
-            headers: {
-              'Accept': 'application/json,text/plain,*/*'
-            }
+            headers: { 'Accept': 'application/json,text/plain,*/*' }
           });
 
           const text = await response.text();
-          let parsed = null;
+          let parsed;
 
           try {
             parsed = JSON.parse(text);
           } catch (e) {
             attempts.push({
-              attempt: attempt,
+              attempt,
               httpStatus: response.status,
               result: 'BAD_JSON',
               preview: text.substring(0, 220)
             });
 
-            if (attempt < MAX_ATTEMPTS) {
-              await sleep(RETRY_DELAY_MS * attempt);
+            if (attempt < READ_MAX_ATTEMPTS) {
+              await sleep(READ_RETRY_DELAY_MS * attempt);
               continue;
             }
 
-            throw new Error(
-              label + '_BAD_JSON_AFTER_' + MAX_ATTEMPTS + '_ATTEMPTS | HTTP ' + response.status
-            );
+            throw { message: label + '_BAD_JSON_AFTER_' + READ_MAX_ATTEMPTS + '_ATTEMPTS', attempts };
           }
 
           if (!response.ok) {
-            attempts.push({
-              attempt: attempt,
-              httpStatus: response.status,
-              result: 'HTTP_ERROR',
-              body: parsed
-            });
+            attempts.push({ attempt, httpStatus: response.status, result: 'HTTP_ERROR', body: parsed });
 
-            if (attempt < MAX_ATTEMPTS) {
-              await sleep(RETRY_DELAY_MS * attempt);
+            if (attempt < READ_MAX_ATTEMPTS) {
+              await sleep(READ_RETRY_DELAY_MS * attempt);
               continue;
             }
 
-            throw new Error(
-              label + '_HTTP_' + response.status + '_AFTER_' + MAX_ATTEMPTS + '_ATTEMPTS'
-            );
+            throw { message: label + '_HTTP_' + response.status + '_AFTER_' + READ_MAX_ATTEMPTS + '_ATTEMPTS', attempts };
           }
 
-          attempts.push({
-            attempt: attempt,
-            httpStatus: response.status,
-            result: 'SUCCESS'
-          });
-
-          return {
-            data: parsed,
-            attempts: attempts,
-            successAttempt: attempt
-          };
+          attempts.push({ attempt, httpStatus: response.status, result: 'SUCCESS' });
+          return { data: parsed, attempts, successAttempt: attempt };
 
         } catch (err) {
-          const message = err && err.message ? err.message : String(err);
-
-          if (
-            message.includes('_BAD_JSON_AFTER_') ||
-            message.includes('_HTTP_')
-          ) {
-            throw {
-              message: message,
-              attempts: attempts
-            };
-          }
+          if (err && err.attempts) throw err;
 
           attempts.push({
-            attempt: attempt,
+            attempt,
             result: 'FETCH_ERROR',
-            error: message
+            error: err && err.message ? err.message : String(err)
           });
 
-          if (attempt < MAX_ATTEMPTS) {
-            await sleep(RETRY_DELAY_MS * attempt);
+          if (attempt < READ_MAX_ATTEMPTS) {
+            await sleep(READ_RETRY_DELAY_MS * attempt);
             continue;
           }
 
           throw {
-            message: label + '_FETCH_FAILED_AFTER_' + MAX_ATTEMPTS + '_ATTEMPTS | ' + message,
-            attempts: attempts
+            message: label + '_FETCH_FAILED_AFTER_' + READ_MAX_ATTEMPTS + '_ATTEMPTS',
+            attempts
           };
         }
       }
 
-      throw {
-        message: label + '_UNKNOWN_FAILURE',
-        attempts: attempts
+      throw { message: label + '_UNKNOWN_FAILURE', attempts };
+    }
+
+    function sessionMatchesExpected(session) {
+      return !!(
+        session &&
+        session.ok &&
+        session.taskId === EXPECTED.taskId &&
+        String(session.role || '').toUpperCase() === EXPECTED.role &&
+        Number(session.revision) === EXPECTED.revision &&
+        session.task &&
+        session.task.taskId === EXPECTED.taskId &&
+        Number(session.task.revision) === EXPECTED.revision
+      );
+    }
+
+    function claimPreconditionsSatisfied(session) {
+      return !!(
+        sessionMatchesExpected(session) &&
+        !session.tokenExpired &&
+        String(session.task.status || '').toUpperCase() === 'READY' &&
+        String(session.task.nextActor || '').toUpperCase() === 'APM' &&
+        !String(session.task.claimedBy || '').trim() &&
+        !String(session.task.lockId || '').trim()
+      );
+    }
+
+    function authoritativeClaimConfirmed(session) {
+      return !!(
+        sessionMatchesExpected(session) &&
+        String(session.sessionState || '').toUpperCase() === 'CLAIMED' &&
+        String(session.task.status || '').toUpperCase() === 'IN_PROGRESS' &&
+        String(session.task.claimedBy || '').toUpperCase() === 'APM' &&
+        String(session.task.nextActor || '').toUpperCase() === 'APM' &&
+        String(session.task.lockId || '').trim() &&
+        String(session.lockId || '').trim() &&
+        String(session.task.lockId || '').trim() === String(session.lockId || '').trim()
+      );
+    }
+
+    async function readSession(label) {
+      return readJsonWithRetry(
+        GATEWAY + '?action=get_session&token=' + encodeURIComponent(workerToken),
+        label
+      );
+    }
+
+    async function initializePortal() {
+      const sessionBox = document.getElementById('sessionResult');
+      const sessionSummary = document.getElementById('sessionSummary');
+      const claimButton = document.getElementById('claimButton');
+      const finalStatus = document.getElementById('finalStatus');
+
+      workerToken = getTokenFromFragment();
+      removeTokenFromVisibleUrl();
+
+      if (!workerToken) {
+        sessionBox.textContent = 'TOKEN_MISSING';
+        sessionSummary.textContent = 'Session validation failed: no worker token in URL fragment.';
+        sessionSummary.className = 'error';
+        finalStatus.textContent = 'CLAIM TEST BLOCKED — TOKEN_MISSING';
+        return;
+      }
+
+      try {
+        const read = await readSession('INITIAL_SESSION');
+        sessionSnapshot = read.data;
+
+        sessionBox.textContent = JSON.stringify({
+          successAttempt: read.successAttempt,
+          attempts: read.attempts,
+          response: read.data
+        }, null, 2);
+
+        if (!sessionMatchesExpected(sessionSnapshot)) {
+          sessionSummary.textContent = 'Session validation failed: Task ID / Role / Revision mismatch.';
+          sessionSummary.className = 'error';
+          finalStatus.textContent = 'CLAIM TEST BLOCKED — SESSION_MISMATCH';
+          return;
+        }
+
+        if (sessionSnapshot.tokenExpired) {
+          sessionSummary.textContent = 'Session validation failed: worker token expired.';
+          sessionSummary.className = 'error';
+          finalStatus.textContent = 'CLAIM TEST BLOCKED — TOKEN_EXPIRED';
+          return;
+        }
+
+        if (authoritativeClaimConfirmed(sessionSnapshot)) {
+          sessionSummary.textContent = 'This token/session is already authoritatively claimed.';
+          sessionSummary.className = 'warn';
+          finalStatus.textContent = 'LAB-006 CLAIM ALREADY CONFIRMED';
+          document.getElementById('instructionResult').textContent = String(sessionSnapshot.task.taskInstruction || '');
+          return;
+        }
+
+        if (!claimPreconditionsSatisfied(sessionSnapshot)) {
+          sessionSummary.textContent = 'Session is valid, but authoritative Claim preconditions are not satisfied.';
+          sessionSummary.className = 'error';
+          finalStatus.textContent = 'CLAIM TEST BLOCKED — PRECONDITION_FAILED';
+          return;
+        }
+
+        sessionSummary.textContent = 'SESSION VALID — CLAIM PRECONDITIONS SATISFIED';
+        sessionSummary.className = 'ok';
+        claimButton.disabled = false;
+        finalStatus.textContent = 'READY FOR SINGLE CLAIM ATTEMPT';
+
+      } catch (err) {
+        sessionBox.textContent = JSON.stringify({
+          error: err && err.message ? err.message : String(err),
+          attempts: err && err.attempts ? err.attempts : []
+        }, null, 2);
+        sessionSummary.textContent = 'Session read failed.';
+        sessionSummary.className = 'error';
+        finalStatus.textContent = 'CLAIM TEST BLOCKED — SESSION_READ_FAILED';
+      }
+    }
+
+    async function authoritativeReadback(reason) {
+      const readbackBox = document.getElementById('readbackResult');
+      const instructionBox = document.getElementById('instructionResult');
+      const finalStatus = document.getElementById('finalStatus');
+
+      try {
+        const read = await readSession('CLAIM_READBACK');
+        const session = read.data;
+
+        readbackBox.textContent = JSON.stringify({
+          reason,
+          successAttempt: read.successAttempt,
+          attempts: read.attempts,
+          response: session
+        }, null, 2);
+
+        if (authoritativeClaimConfirmed(session)) {
+          instructionBox.textContent = String(session.task.taskInstruction || '');
+          finalStatus.textContent =
+            'LAB-006 CLAIM TEST PASSED\n' +
+            'Status: IN_PROGRESS\n' +
+            'Claimed By: APM\n' +
+            'Next Actor: APM\n' +
+            'Lock ID: PRESENT\n' +
+            'Submit: DISABLED';
+          return true;
+        }
+
+        finalStatus.textContent =
+          'LAB-006 CLAIM NOT CONFIRMED BY AUTHORITATIVE READBACK\n' +
+          'No blind retry is allowed.';
+        return false;
+
+      } catch (err) {
+        readbackBox.textContent = JSON.stringify({
+          reason,
+          error: err && err.message ? err.message : String(err),
+          attempts: err && err.attempts ? err.attempts : []
+        }, null, 2);
+
+        finalStatus.textContent =
+          'CLAIM OUTCOME UNKNOWN — AUTHORITATIVE READBACK FAILED\n' +
+          'DO NOT RETRY CLAIM BLINDLY';
+        return false;
+      }
+    }
+
+    async function claimTaskOnce() {
+      const claimButton = document.getElementById('claimButton');
+      const claimBox = document.getElementById('claimResult');
+      const finalStatus = document.getElementById('finalStatus');
+
+      if (claimAttempted) return;
+      claimAttempted = true;
+      claimButton.disabled = true;
+      claimBox.textContent = 'Submitting exactly one Claim mutation attempt...';
+      finalStatus.textContent = 'CLAIM MUTATION IN FLIGHT — DO NOT RETRY';
+
+      const payload = {
+        action: 'claim_task',
+        token: workerToken,
+        taskId: EXPECTED.taskId,
+        role: EXPECTED.role,
+        revision: EXPECTED.revision
       };
-    }
 
-    async function runReadOnlyProbe() {
-      const healthBox = document.getElementById('healthResult');
-      const taskBox = document.getElementById('taskResult');
-      const functionalBox = document.getElementById('functionalOutput');
-      const summary = document.getElementById('summary');
-
-      let healthOk = false;
-      let taskOk = false;
-      let taskPayload = null;
+      let response;
+      let text = '';
+      let parsed = null;
 
       try {
-        const healthRead = await readJsonWithRetry(
-          GATEWAY + '?action=health',
-          'GATEWAY_HEALTH'
-        );
+        response = await fetch(GATEWAY, {
+          method: 'POST',
+          redirect: 'follow',
+          cache: 'no-store',
+          headers: {
+            'Content-Type': 'text/plain;charset=UTF-8'
+          },
+          body: JSON.stringify(payload)
+        });
 
-        healthBox.textContent = JSON.stringify({
-          successAttempt: healthRead.successAttempt,
-          attempts: healthRead.attempts,
-          response: healthRead.data
+        text = await response.text();
+
+        try {
+          parsed = JSON.parse(text);
+        } catch (e) {
+          claimBox.textContent = JSON.stringify({
+            outcome: 'AMBIGUOUS_RESPONSE',
+            httpStatus: response.status,
+            reason: 'BAD_JSON',
+            preview: text.substring(0, 300),
+            blindRetryPerformed: false
+          }, null, 2);
+
+          await authoritativeReadback('POST_RETURNED_BAD_JSON');
+          return;
+        }
+
+        claimBox.textContent = JSON.stringify({
+          httpStatus: response.status,
+          response: parsed,
+          blindRetryPerformed: false
         }, null, 2);
 
-        healthOk = !!(healthRead.data && healthRead.data.ok);
+        if (response.ok && parsed && parsed.ok && parsed.code === 'CLAIMED') {
+          await authoritativeReadback('POST_REPORTED_CLAIMED');
+          return;
+        }
+
+        if (parsed && parsed.ok === false) {
+          finalStatus.textContent =
+            'CLAIM REJECTED DEFINITIVELY\n' +
+            'Code: ' + String(parsed.code || 'UNKNOWN') + '\n' +
+            'No blind retry performed.';
+          return;
+        }
+
+        await authoritativeReadback('POST_RESPONSE_NOT_CONCLUSIVE');
 
       } catch (err) {
-        healthBox.textContent = JSON.stringify({
+        claimBox.textContent = JSON.stringify({
+          outcome: 'TRANSPORT_AMBIGUOUS',
           error: err && err.message ? err.message : String(err),
-          attempts: err && err.attempts ? err.attempts : []
-        }, null, 2);
-      }
-
-      try {
-        const taskRead = await readJsonWithRetry(
-          GATEWAY + '?action=get_task&taskId=LAB-006',
-          'GATEWAY_TASK'
-        );
-
-        taskPayload = taskRead.data;
-
-        taskBox.textContent = JSON.stringify({
-          successAttempt: taskRead.successAttempt,
-          attempts: taskRead.attempts,
-          response: taskRead.data
+          blindRetryPerformed: false
         }, null, 2);
 
-        taskOk = !!(
-          taskPayload &&
-          taskPayload.ok &&
-          taskPayload.task &&
-          taskPayload.task.taskId === 'LAB-006' &&
-          Number(taskPayload.task.revision) === 0
-        );
-
-      } catch (err) {
-        taskBox.textContent = JSON.stringify({
-          error: err && err.message ? err.message : String(err),
-          attempts: err && err.attempts ? err.attempts : []
-        }, null, 2);
-      }
-
-      if (taskOk) {
-        const t = taskPayload.task;
-
-        functionalBox.textContent =
-          'LAB-006 FUNCTIONAL READ PASSED\n' +
-          'Status: ' + String(t.status || '') + '\n' +
-          'Next Actor: ' + String(t.nextActor || '') + '\n' +
-          'Task Title: ' + String(t.taskTitle || '');
-      } else {
-        functionalBox.textContent = 'LAB-006 FUNCTIONAL READ FAILED';
-      }
-
-      if (healthOk && taskOk) {
-        summary.textContent = 'READ-ONLY GATEWAY TEST: PASS';
-        summary.className = 'ok';
-      } else {
-        summary.textContent = 'READ-ONLY GATEWAY TEST: FAIL';
-        summary.className = 'error';
+        await authoritativeReadback('POST_TRANSPORT_EXCEPTION');
       }
     }
 
-    runReadOnlyProbe();
+    document.getElementById('claimButton').addEventListener('click', claimTaskOnce);
+    initializePortal();
   </script>
 </body>
 </html>
