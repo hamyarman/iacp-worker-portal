@@ -4,11 +4,11 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="referrer" content="no-referrer" />
-  <title>IACP Worker Portal — LAB-006 Claim Test</title>
+  <title>IACP Worker Portal — LAB-006 Resume + Submit</title>
   <style>
     body {
       font-family: Arial, sans-serif;
-      max-width: 920px;
+      max-width: 960px;
       margin: 40px auto;
       padding: 0 18px;
       line-height: 1.55;
@@ -39,6 +39,17 @@
       cursor: not-allowed;
       opacity: 0.55;
     }
+    textarea {
+      width: 100%;
+      min-height: 220px;
+      box-sizing: border-box;
+      padding: 12px;
+      border: 1px solid #aaa;
+      border-radius: 8px;
+      font: inherit;
+      line-height: 1.5;
+      resize: vertical;
+    }
     code, pre {
       white-space: pre-wrap;
       word-break: break-word;
@@ -53,8 +64,8 @@
 
   <div class="card">
     <p class="ok">GitHub Portal Reachability: PASS</p>
-    <p><b>Mode:</b> CLAIM-ONLY LAB TEST</p>
-    <p class="warn">This version can perform exactly one Claim mutation. Submit is disabled.</p>
+    <p><b>Mode:</b> LAB — RESUME + SUBMIT</p>
+    <p class="warn">Mutation POSTs are single-attempt only. Ambiguous responses are resolved by authoritative GET readback. No blind retry.</p>
   </div>
 
   <div class="card">
@@ -72,9 +83,22 @@
 
   <div class="card">
     <h3>Claim Task</h3>
-    <p>Claim performs a single POST attempt only. It is never blindly retried.</p>
+    <p>Only INITIAL sessions in READY state may claim. RESUME sessions never re-claim.</p>
     <button id="claimButton" type="button" disabled>CLAIM TASK</button>
     <pre id="claimResult">Claim not attempted.</pre>
+  </div>
+
+  <div class="card">
+    <h3>Task Instruction</h3>
+    <pre id="instructionResult">Instruction will appear after a valid claimed or resumed session is confirmed.</pre>
+  </div>
+
+  <div class="card">
+    <h3>Final Result</h3>
+    <p class="muted">Enter the completed worker result exactly once. The portal never blindly retries Submit.</p>
+    <textarea id="resultText" disabled placeholder="Final Result"></textarea>
+    <p><button id="submitButton" type="button" disabled>SUBMIT RESULT</button></p>
+    <pre id="submitResult">Submit not attempted.</pre>
   </div>
 
   <div class="card">
@@ -83,29 +107,27 @@
   </div>
 
   <div class="card">
-    <h3>Task Instruction</h3>
-    <pre id="instructionResult">Task must be successfully claimed before the instruction is shown here.</pre>
-  </div>
-
-  <div class="card">
-    <h3>Final Claim Test Status</h3>
+    <h3>Final Worker Status</h3>
     <pre id="finalStatus">WAITING FOR SESSION VALIDATION</pre>
   </div>
 
   <script>
     const GATEWAY = 'https://script.google.com/macros/s/AKfycbzu9nNZjPl9cMPdLVvkZJR3cLhMEewZeirtZaknvyvfk95OLTk44LA-CAU4XvmrZIc/exec';
+
     const EXPECTED = Object.freeze({
       taskId: 'LAB-006',
       role: 'APM',
       revision: 0
     });
 
-    const READ_MAX_ATTEMPTS = 3;
+    const READ_MAX_ATTEMPTS = 4;
     const READ_RETRY_DELAY_MS = 1200;
+    const MIN_RESULT_CHARS = 80;
 
     let workerToken = '';
     let sessionSnapshot = null;
     let claimAttempted = false;
+    let submitAttempted = false;
 
     function sleep(ms) {
       return new Promise(resolve => setTimeout(resolve, ms));
@@ -219,6 +241,7 @@
       return !!(
         sessionMatchesExpected(session) &&
         !session.tokenExpired &&
+        String(session.sessionMode || 'INITIAL').toUpperCase() === 'INITIAL' &&
         String(session.task.status || '').toUpperCase() === 'READY' &&
         String(session.task.nextActor || '').toUpperCase() === 'APM' &&
         !String(session.task.claimedBy || '').trim() &&
@@ -226,16 +249,28 @@
       );
     }
 
-    function authoritativeClaimConfirmed(session) {
+    function activeWorkerSessionConfirmed(session) {
       return !!(
         sessionMatchesExpected(session) &&
-        String(session.sessionState || '').toUpperCase() === 'CLAIMED' &&
+        !session.tokenExpired &&
         String(session.task.status || '').toUpperCase() === 'IN_PROGRESS' &&
         String(session.task.claimedBy || '').toUpperCase() === 'APM' &&
         String(session.task.nextActor || '').toUpperCase() === 'APM' &&
         String(session.task.lockId || '').trim() &&
         String(session.lockId || '').trim() &&
-        String(session.task.lockId || '').trim() === String(session.lockId || '').trim()
+        String(session.task.lockId || '').trim() === String(session.lockId || '').trim() &&
+        !String(session.task.outputLink || '').trim()
+      );
+    }
+
+    function submissionConfirmed(session) {
+      return !!(
+        sessionMatchesExpected(session) &&
+        String(session.task.status || '').toUpperCase() === 'READY_FOR_QA' &&
+        String(session.task.nextActor || '').toUpperCase() === 'AQS' &&
+        !String(session.task.claimedBy || '').trim() &&
+        !String(session.task.lockId || '').trim() &&
+        String(session.task.outputLink || '').trim()
       );
     }
 
@@ -244,6 +279,17 @@
         GATEWAY + '?action=get_session&token=' + encodeURIComponent(workerToken),
         label
       );
+    }
+
+    function enableExecution(session) {
+      document.getElementById('instructionResult').textContent = String(session.task.taskInstruction || '');
+      document.getElementById('resultText').disabled = false;
+      document.getElementById('submitButton').disabled = false;
+    }
+
+    function disableExecution() {
+      document.getElementById('resultText').disabled = true;
+      document.getElementById('submitButton').disabled = true;
     }
 
     async function initializePortal() {
@@ -259,7 +305,7 @@
         sessionBox.textContent = 'TOKEN_MISSING';
         sessionSummary.textContent = 'Session validation failed: no worker token in URL fragment.';
         sessionSummary.className = 'error';
-        finalStatus.textContent = 'CLAIM TEST BLOCKED — TOKEN_MISSING';
+        finalStatus.textContent = 'WORKER BLOCKED — TOKEN_MISSING';
         return;
       }
 
@@ -276,36 +322,54 @@
         if (!sessionMatchesExpected(sessionSnapshot)) {
           sessionSummary.textContent = 'Session validation failed: Task ID / Role / Revision mismatch.';
           sessionSummary.className = 'error';
-          finalStatus.textContent = 'CLAIM TEST BLOCKED — SESSION_MISMATCH';
+          finalStatus.textContent = 'WORKER BLOCKED — SESSION_MISMATCH';
           return;
         }
 
         if (sessionSnapshot.tokenExpired) {
           sessionSummary.textContent = 'Session validation failed: worker token expired.';
           sessionSummary.className = 'error';
-          finalStatus.textContent = 'CLAIM TEST BLOCKED — TOKEN_EXPIRED';
+          finalStatus.textContent = 'WORKER BLOCKED — TOKEN_EXPIRED';
           return;
         }
 
-        if (authoritativeClaimConfirmed(sessionSnapshot)) {
-          sessionSummary.textContent = 'This token/session is already authoritatively claimed.';
-          sessionSummary.className = 'warn';
-          finalStatus.textContent = 'LAB-006 CLAIM ALREADY CONFIRMED';
-          document.getElementById('instructionResult').textContent = String(sessionSnapshot.task.taskInstruction || '');
+        if (submissionConfirmed(sessionSnapshot)) {
+          sessionSummary.textContent = 'Result is already authoritatively submitted.';
+          sessionSummary.className = 'ok';
+          finalStatus.textContent = 'LAB-006 RESULT ALREADY CONFIRMED — READY_FOR_QA';
+          disableExecution();
           return;
         }
 
-        if (!claimPreconditionsSatisfied(sessionSnapshot)) {
-          sessionSummary.textContent = 'Session is valid, but authoritative Claim preconditions are not satisfied.';
-          sessionSummary.className = 'error';
-          finalStatus.textContent = 'CLAIM TEST BLOCKED — PRECONDITION_FAILED';
+        if (activeWorkerSessionConfirmed(sessionSnapshot)) {
+          const mode = String(sessionSnapshot.sessionMode || 'INITIAL').toUpperCase();
+          sessionSummary.textContent = mode === 'RESUME'
+            ? 'RESUME SESSION VALID — EXISTING CLAIM AND LOCK PRESERVED'
+            : 'CLAIMED SESSION VALID — READY TO EXECUTE AND SUBMIT';
+          sessionSummary.className = 'ok';
+          claimButton.disabled = true;
+          enableExecution(sessionSnapshot);
+          finalStatus.textContent =
+            'READY FOR WORKER EXECUTION\n' +
+            'Session Mode: ' + mode + '\n' +
+            'Status: IN_PROGRESS\n' +
+            'Claimed By: APM\n' +
+            'Lock: PRESERVED\n' +
+            'Submit: ENABLED';
           return;
         }
 
-        sessionSummary.textContent = 'SESSION VALID — CLAIM PRECONDITIONS SATISFIED';
-        sessionSummary.className = 'ok';
-        claimButton.disabled = false;
-        finalStatus.textContent = 'READY FOR SINGLE CLAIM ATTEMPT';
+        if (claimPreconditionsSatisfied(sessionSnapshot)) {
+          sessionSummary.textContent = 'INITIAL SESSION VALID — CLAIM PRECONDITIONS SATISFIED';
+          sessionSummary.className = 'ok';
+          claimButton.disabled = false;
+          finalStatus.textContent = 'READY FOR SINGLE CLAIM ATTEMPT';
+          return;
+        }
+
+        sessionSummary.textContent = 'Session is valid, but neither Claim nor Submit preconditions are satisfied.';
+        sessionSummary.className = 'error';
+        finalStatus.textContent = 'WORKER BLOCKED — PRECONDITION_FAILED';
 
       } catch (err) {
         sessionBox.textContent = JSON.stringify({
@@ -314,17 +378,16 @@
         }, null, 2);
         sessionSummary.textContent = 'Session read failed.';
         sessionSummary.className = 'error';
-        finalStatus.textContent = 'CLAIM TEST BLOCKED — SESSION_READ_FAILED';
+        finalStatus.textContent = 'WORKER BLOCKED — SESSION_READ_FAILED';
       }
     }
 
-    async function authoritativeReadback(reason) {
+    async function authoritativeReadback(reason, mode) {
       const readbackBox = document.getElementById('readbackResult');
-      const instructionBox = document.getElementById('instructionResult');
       const finalStatus = document.getElementById('finalStatus');
 
       try {
-        const read = await readSession('CLAIM_READBACK');
+        const read = await readSession(mode === 'submit' ? 'SUBMIT_READBACK' : 'CLAIM_READBACK');
         const session = read.data;
 
         readbackBox.textContent = JSON.stringify({
@@ -334,21 +397,33 @@
           response: session
         }, null, 2);
 
-        if (authoritativeClaimConfirmed(session)) {
-          instructionBox.textContent = String(session.task.taskInstruction || '');
+        if (mode === 'claim' && activeWorkerSessionConfirmed(session)) {
+          enableExecution(session);
           finalStatus.textContent =
-            'LAB-006 CLAIM TEST PASSED\n' +
+            'LAB-006 CLAIM CONFIRMED\n' +
             'Status: IN_PROGRESS\n' +
             'Claimed By: APM\n' +
             'Next Actor: APM\n' +
             'Lock ID: PRESENT\n' +
-            'Submit: DISABLED';
+            'Submit: ENABLED';
+          return true;
+        }
+
+        if (mode === 'submit' && submissionConfirmed(session)) {
+          disableExecution();
+          finalStatus.textContent =
+            'LAB-006 RESULT SUBMISSION PASSED\n' +
+            'Status: READY_FOR_QA\n' +
+            'Next Actor: AQS\n' +
+            'Claimed By: EMPTY\n' +
+            'Lock ID: EMPTY\n' +
+            'Output Link: PRESENT';
           return true;
         }
 
         finalStatus.textContent =
-          'LAB-006 CLAIM NOT CONFIRMED BY AUTHORITATIVE READBACK\n' +
-          'No blind retry is allowed.';
+          (mode === 'submit' ? 'SUBMIT' : 'CLAIM') +
+          ' NOT CONFIRMED BY AUTHORITATIVE READBACK\nNo blind retry is allowed.';
         return false;
 
       } catch (err) {
@@ -359,8 +434,8 @@
         }, null, 2);
 
         finalStatus.textContent =
-          'CLAIM OUTCOME UNKNOWN — AUTHORITATIVE READBACK FAILED\n' +
-          'DO NOT RETRY CLAIM BLINDLY';
+          (mode === 'submit' ? 'SUBMIT' : 'CLAIM') +
+          ' OUTCOME UNKNOWN — AUTHORITATIVE READBACK FAILED\nDO NOT RETRY BLINDLY';
         return false;
       }
     }
@@ -384,22 +459,17 @@
         revision: EXPECTED.revision
       };
 
-      let response;
-      let text = '';
-      let parsed = null;
-
       try {
-        response = await fetch(GATEWAY, {
+        const response = await fetch(GATEWAY, {
           method: 'POST',
           redirect: 'follow',
           cache: 'no-store',
-          headers: {
-            'Content-Type': 'text/plain;charset=UTF-8'
-          },
+          headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
           body: JSON.stringify(payload)
         });
 
-        text = await response.text();
+        const text = await response.text();
+        let parsed = null;
 
         try {
           parsed = JSON.parse(text);
@@ -412,7 +482,7 @@
             blindRetryPerformed: false
           }, null, 2);
 
-          await authoritativeReadback('POST_RETURNED_BAD_JSON');
+          await authoritativeReadback('POST_RETURNED_BAD_JSON', 'claim');
           return;
         }
 
@@ -423,19 +493,17 @@
         }, null, 2);
 
         if (response.ok && parsed && parsed.ok && parsed.code === 'CLAIMED') {
-          await authoritativeReadback('POST_REPORTED_CLAIMED');
+          await authoritativeReadback('POST_REPORTED_CLAIMED', 'claim');
           return;
         }
 
         if (parsed && parsed.ok === false) {
           finalStatus.textContent =
-            'CLAIM REJECTED DEFINITIVELY\n' +
-            'Code: ' + String(parsed.code || 'UNKNOWN') + '\n' +
-            'No blind retry performed.';
+            'CLAIM REJECTED DEFINITIVELY\nCode: ' + String(parsed.code || 'UNKNOWN') + '\nNo blind retry performed.';
           return;
         }
 
-        await authoritativeReadback('POST_RESPONSE_NOT_CONCLUSIVE');
+        await authoritativeReadback('POST_RESPONSE_NOT_CONCLUSIVE', 'claim');
 
       } catch (err) {
         claimBox.textContent = JSON.stringify({
@@ -444,11 +512,104 @@
           blindRetryPerformed: false
         }, null, 2);
 
-        await authoritativeReadback('POST_TRANSPORT_EXCEPTION');
+        await authoritativeReadback('POST_TRANSPORT_EXCEPTION', 'claim');
+      }
+    }
+
+    async function submitResultOnce() {
+      const submitButton = document.getElementById('submitButton');
+      const submitBox = document.getElementById('submitResult');
+      const finalStatus = document.getElementById('finalStatus');
+      const resultBox = document.getElementById('resultText');
+      const resultText = String(resultBox.value || '').trim();
+
+      if (submitAttempted) return;
+
+      if (resultText.length < MIN_RESULT_CHARS) {
+        submitBox.textContent = JSON.stringify({
+          outcome: 'LOCAL_VALIDATION_FAILED',
+          code: 'RESULT_TOO_SHORT',
+          minimum: MIN_RESULT_CHARS,
+          actual: resultText.length
+        }, null, 2);
+        finalStatus.textContent = 'SUBMIT BLOCKED — RESULT_TOO_SHORT';
+        return;
+      }
+
+      submitAttempted = true;
+      submitButton.disabled = true;
+      resultBox.disabled = true;
+      submitBox.textContent = 'Submitting exactly one Result mutation attempt...';
+      finalStatus.textContent = 'SUBMIT MUTATION IN FLIGHT — DO NOT RETRY';
+
+      const payload = {
+        action: 'submit_result',
+        token: workerToken,
+        taskId: EXPECTED.taskId,
+        role: EXPECTED.role,
+        revision: EXPECTED.revision,
+        resultText
+      };
+
+      try {
+        const response = await fetch(GATEWAY, {
+          method: 'POST',
+          redirect: 'follow',
+          cache: 'no-store',
+          headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+          body: JSON.stringify(payload)
+        });
+
+        const text = await response.text();
+        let parsed = null;
+
+        try {
+          parsed = JSON.parse(text);
+        } catch (e) {
+          submitBox.textContent = JSON.stringify({
+            outcome: 'AMBIGUOUS_RESPONSE',
+            httpStatus: response.status,
+            reason: 'BAD_JSON',
+            preview: text.substring(0, 300),
+            blindRetryPerformed: false
+          }, null, 2);
+
+          await authoritativeReadback('SUBMIT_POST_RETURNED_BAD_JSON', 'submit');
+          return;
+        }
+
+        submitBox.textContent = JSON.stringify({
+          httpStatus: response.status,
+          response: parsed,
+          blindRetryPerformed: false
+        }, null, 2);
+
+        if (response.ok && parsed && parsed.ok && parsed.code === 'RESULT_ACCEPTED') {
+          await authoritativeReadback('POST_REPORTED_RESULT_ACCEPTED', 'submit');
+          return;
+        }
+
+        if (parsed && parsed.ok === false) {
+          finalStatus.textContent =
+            'SUBMIT REJECTED DEFINITIVELY\nCode: ' + String(parsed.code || 'UNKNOWN') + '\nNo blind retry performed.';
+          return;
+        }
+
+        await authoritativeReadback('SUBMIT_POST_RESPONSE_NOT_CONCLUSIVE', 'submit');
+
+      } catch (err) {
+        submitBox.textContent = JSON.stringify({
+          outcome: 'TRANSPORT_AMBIGUOUS',
+          error: err && err.message ? err.message : String(err),
+          blindRetryPerformed: false
+        }, null, 2);
+
+        await authoritativeReadback('SUBMIT_POST_TRANSPORT_EXCEPTION', 'submit');
       }
     }
 
     document.getElementById('claimButton').addEventListener('click', claimTaskOnce);
+    document.getElementById('submitButton').addEventListener('click', submitResultOnce);
     initializePortal();
   </script>
 </body>
