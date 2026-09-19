@@ -164,16 +164,27 @@ function requestId(prefix){
   return prefix + '-' + Date.now() + '-' + Math.random().toString(36).slice(2, 12);
 }
 
-function tokenFromFragment(){
-  const raw = window.location.hash || '';
-  if (!raw.startsWith('#')) return '';
-  return clean(new URLSearchParams(raw.slice(1)).get('token'));
+function tokenFromLocation(){
+  const rawHash = window.location.hash || '';
+  if (rawHash.startsWith('#')){
+    const fragmentToken = clean(new URLSearchParams(rawHash.slice(1)).get('token'));
+    if (fragmentToken) return fragmentToken;
+  }
+
+  const params = new URLSearchParams(window.location.search || '');
+  return clean(params.get('token'));
 }
 
 function removeTokenFromVisibleUrl(){
-  if (window.location.hash){
-    history.replaceState(null, document.title, window.location.pathname + window.location.search);
-  }
+  const params = new URLSearchParams(window.location.search || '');
+  params.delete('token');
+
+  const remaining = params.toString();
+  const cleanUrl =
+    window.location.pathname +
+    (remaining ? '?' + remaining : '');
+
+  history.replaceState(null, document.title, cleanUrl);
 }
 
 function cacheBusted(url, attempt){
@@ -428,74 +439,87 @@ function renderSession(read){
   }
 }
 
-async function authoritativeReadback(label){
-  try{
-    const read = await readSession(label);
-    $('readbackResult').textContent = JSON.stringify({
-      successAttempt:read.successAttempt,
-      attempts:read.attempts,
-      session:read.data.session
-    }, null, 2);
-    renderSession(read);
-    return read.data.session;
-  }catch(err){
-    mutationBlocked = true;
-    $('readbackResult').textContent = JSON.stringify({
-      error:err && err.message ? err.message : String(err),
-      detail:err
-    }, null, 2);
-    $('finalStatus').textContent =
-      'BLOCKED — authoritative readback failed after mutation. Do NOT repeat the mutation blindly.';
-    disableMutationButtons();
-    throw err;
-  }
-}
-
 function disableMutationButtons(){
+  mutationBlocked = true;
   ['claimButton','submitButton','qaApproveButton','qaRevisionButton','heartbeatButton'].forEach(id => {
-    if ($(id)) $(id).disabled = true;
+    const node = $(id);
+    if (node) node.disabled = true;
   });
 }
 
-async function mutateAndReadback(payload, label, outputId){
-  if (mutationBlocked) return;
+function setMutationBlocked(reason){
   disableMutationButtons();
-  const post = await singleAttemptPost(payload, label);
-  $(outputId).textContent = JSON.stringify(post, null, 2);
+  $('finalStatus').textContent = 'MUTATION BLOCKED — ' + reason;
+}
 
-  // The POST transport response is not treated as authoritative.
-  // Always resolve the committed state from GET get_session.
+async function authoritativeReadback(label){
   try{
-    await authoritativeReadback(label + '_READBACK');
+    const read = await readSession(label);
+    renderSession(read);
+    $('readbackResult').textContent = JSON.stringify({
+      result:'CONFIRMED',
+      successAttempt:read.successAttempt,
+      attempts:read.attempts,
+      session
+    }, null, 2);
+    return {confirmed:true, read};
   }catch(err){
+    $('readbackResult').textContent = JSON.stringify({
+      result:'UNCONFIRMED',
+      error:err && err.message ? err.message : String(err),
+      detail:err
+    }, null, 2);
+    setMutationBlocked('Authoritative readback failed. Do not blind-retry mutation.');
+    return {confirmed:false, error:err};
+  }
+}
+
+async function mutateThenReadback(payload, mutationLabel, outputId){
+  if (mutationBlocked){
+    $(outputId).textContent = 'BLOCKED — previous ambiguous outcome/readback failure. Reload with a valid fresh session.';
     return;
+  }
+
+  const diagnostic = await singleAttemptPost(payload, mutationLabel);
+  $(outputId).textContent = JSON.stringify(diagnostic, null, 2);
+
+  const readback = await authoritativeReadback(mutationLabel + '_READBACK');
+  if (!readback.confirmed){
+    return;
+  }
+
+  if (diagnostic.ambiguous){
+    $('finalStatus').textContent = 'POST outcome was ambiguous; authoritative readback above is the source of truth. No blind retry performed.';
   }
 }
 
 async function claim(){
-  if (!session || !hasAction('CLAIM')) return;
-  await mutateAndReadback({
+  if (!hasAction('CLAIM')) return;
+  await mutateThenReadback({
     action:'claim',
     token:workerToken,
     taskId:session.taskId,
     role:session.role,
-    revision:Number(session.revision),
-    requestId:requestId('claim')
+    revision:session.revision,
+    workerId:session.workerId,
+    requestId:requestId('CLAIM')
   }, 'CLAIM', 'claimResult');
 }
 
 async function acknowledgeWorkerStart(){
-  if (!session || !clean(session.lockId) || !clean(session.dispatchId)) return null;
+  if (!session || mutationBlocked) return;
+  if (!(session.allowedActions || []).length) return;
+  if (!clean(session.lockId)) return;
 
   $('ackCard').classList.remove('hidden');
 
   if (clean(session.acknowledgedAt)){
     $('ackResult').textContent = JSON.stringify({
-      alreadyAcknowledged:true,
+      result:'ALREADY_ACKNOWLEDGED',
       acknowledgedAt:session.acknowledgedAt,
-      dispatchId:session.dispatchId
+      dispatchId:session.dispatchId || ''
     }, null, 2);
-    return session;
+    return;
   }
 
   const payload = {
@@ -503,95 +527,58 @@ async function acknowledgeWorkerStart(){
     token:workerToken,
     taskId:session.taskId,
     role:session.role,
-    revision:Number(session.revision),
-    dispatchId:session.dispatchId,
-    lockId:session.lockId,
-    requestId:requestId('ack')
+    revision:session.revision,
+    workerId:session.workerId,
+    dispatchId:session.dispatchId || '',
+    requestId:requestId('ACK')
   };
 
-  const post = await singleAttemptPost(payload, 'WORKER_ACK');
-  $('ackResult').textContent = JSON.stringify(post, null, 2);
-
-  // ACK is a mutation: never retry POST blindly.
-  // Resolve authoritative state only through get_session.
-  try{
-    return await authoritativeReadback('WORKER_ACK_READBACK');
-  }catch(err){
-    return null;
-  }
+  await mutateThenReadback(payload, 'WORKER_ACK', 'ackResult');
 }
 
 async function heartbeat(){
-  if (!session || !clean(session.lockId)) return;
-  await mutateAndReadback({
+  if (!hasAction('HEARTBEAT')) return;
+  await mutateThenReadback({
     action:'heartbeat',
     token:workerToken,
     taskId:session.taskId,
     role:session.role,
-    revision:Number(session.revision),
-    lockId:session.lockId,
-    requestId:requestId('heartbeat')
+    revision:session.revision,
+    workerId:session.workerId,
+    requestId:requestId('HEARTBEAT')
   }, 'HEARTBEAT', 'heartbeatResult');
 }
 
 async function submitResult(){
-  if (!session || !hasAction('SUBMIT_RESULT')) return;
-  const resultSummary = clean($('resultSummary').value);
-  if (!resultSummary){
-    $('submitResult').textContent = 'BLOCKED: Result summary is required.';
-    return;
-  }
-
-  const artifacts = collectArtifacts();
-  const missing = artifacts.findIndex(a => !a.type || !a.fileName || !a.url || !Number.isFinite(a.bytes) || a.bytes < 0);
-  if (missing >= 0){
-    $('submitResult').textContent = 'BLOCKED: Complete type, file name, HTTPS URL and non-negative bytes for artifact ' + (missing + 1) + '.';
-    return;
-  }
-
-  await mutateAndReadback({
+  if (!hasAction('SUBMIT_RESULT')) return;
+  await mutateThenReadback({
     action:'submit',
     token:workerToken,
     taskId:session.taskId,
     role:session.role,
-    revision:Number(session.revision),
-    lockId:session.lockId,
-    resultSummary,
-    artifacts,
-    requestId:requestId('submit')
+    revision:session.revision,
+    workerId:session.workerId,
+    resultSummary:clean($('resultSummary').value),
+    artifacts:collectArtifacts(),
+    requestId:requestId('SUBMIT')
   }, 'SUBMIT_RESULT', 'submitResult');
 }
 
 async function qaSubmit(verdict){
-  const actionNeeded = verdict === 'APPROVED' ? 'QA_APPROVE' : 'QA_NEEDS_REVISION';
-  if (!session || !hasAction(actionNeeded)) return;
+  const needed = verdict === 'APPROVED' ? 'QA_APPROVE' : 'QA_NEEDS_REVISION';
+  if (!hasAction(needed)) return;
 
-  const qaNotes = clean($('qaNotes').value);
-  if (qaNotes.length < 30){
-    $('qaResult').textContent = 'BLOCKED: QA notes must contain at least 30 characters.';
-    return;
-  }
-
-  const qaArtifacts = collectOptionalQaArtifacts();
-  if (qaArtifacts.length){
-    const a = qaArtifacts[0];
-    if (!a.type || !a.fileName || !a.url || !Number.isFinite(a.bytes) || a.bytes < 0){
-      $('qaResult').textContent = 'BLOCKED: The optional QA artifact is partially filled. Complete all required artifact fields or clear them.';
-      return;
-    }
-  }
-
-  await mutateAndReadback({
+  await mutateThenReadback({
     action:'qa_submit',
     token:workerToken,
     taskId:session.taskId,
     role:session.role,
-    revision:Number(session.revision),
-    lockId:session.lockId,
+    revision:session.revision,
+    workerId:session.workerId,
     verdict,
-    qaNotes,
-    qaArtifacts,
-    requestId:requestId('qa')
+    qaNotes:clean($('qaNotes').value),
+    artifacts:collectOptionalQaArtifacts(),
+    requestId:requestId('QA_' + verdict)
   }, 'QA_' + verdict, 'qaResult');
 }
 
@@ -603,7 +590,7 @@ function escapeHtml(value){
 function escapeAttr(value){ return escapeHtml(value); }
 
 async function initialize(){
-  workerToken = tokenFromFragment();
+  workerToken = tokenFromLocation();
   removeTokenFromVisibleUrl();
 
   if (!workerToken){
@@ -633,9 +620,9 @@ async function initialize(){
 
 $('claimButton').addEventListener('click', claim);
 $('submitButton').addEventListener('click', submitResult);
-$('heartbeatButton').addEventListener('click', heartbeat);
 $('qaApproveButton').addEventListener('click', () => qaSubmit('APPROVED'));
 $('qaRevisionButton').addEventListener('click', () => qaSubmit('NEEDS_REVISION'));
+$('heartbeatButton').addEventListener('click', heartbeat);
 
 initialize();
 </script>
