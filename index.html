@@ -1,630 +1,187 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="referrer" content="no-referrer" />
-  <title>IACP Generic Worker Portal — LAB</title>
-  <style>
-    :root{
-      color-scheme:light;
-      --bg:#f5f6f8;--card:#fff;--text:#1f2328;--muted:#667085;
-      --border:#d0d5dd;--ok:#147d3f;--warn:#9a6700;--bad:#b42318;
-      --btn:#111827;--btnText:#fff;
-    }
-    *{box-sizing:border-box}
-    body{font-family:Arial,Helvetica,sans-serif;margin:0;background:var(--bg);color:var(--text);line-height:1.5}
-    main{max-width:1040px;margin:32px auto;padding:0 16px 48px}
-    h1{margin:0 0 8px;font-size:28px}
-    h2,h3{margin-top:0}
-    .muted{color:var(--muted)}
-    .ok{color:var(--ok);font-weight:700}
-    .warn{color:var(--warn);font-weight:700}
-    .bad{color:var(--bad);font-weight:700}
-    .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px;margin:14px 0}
-    .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 18px}
-    .kv{padding:8px 0;border-bottom:1px solid #eef0f2}
-    .kv b{display:block;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em}
-    pre{white-space:pre-wrap;word-break:break-word;background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:12px;max-height:420px;overflow:auto}
-    textarea,input{width:100%;padding:10px 12px;border:1px solid #b8c0cc;border-radius:8px;font:inherit;background:#fff}
-    textarea{min-height:130px;resize:vertical}
-    label{display:block;font-weight:700;margin:10px 0 5px}
-    button{appearance:none;border:1px solid #111827;border-radius:8px;background:var(--btn);color:var(--btnText);padding:10px 15px;font-weight:700;cursor:pointer;margin:4px 8px 4px 0}
-    button.secondary{background:#fff;color:#111827}
-    button.danger{background:#fff;color:var(--bad);border-color:var(--bad)}
-    button:disabled{opacity:.45;cursor:not-allowed}
-    .hidden{display:none}
-    .artifact{border:1px solid #e1e5ea;border-radius:10px;padding:12px;margin:10px 0;background:#fcfcfd}
-    a{word-break:break-all}
-    code{background:#f2f4f7;padding:2px 5px;border-radius:4px}
-    .pill{display:inline-block;padding:4px 8px;border-radius:999px;background:#eef2f6;margin:2px 4px 2px 0;font-size:12px}
-    @media(max-width:720px){.grid{grid-template-columns:1fr}}
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>IACP Generic Worker Portal — LAB v0.1.3</title>
+<style>
+body{font-family:Arial,sans-serif;margin:24px;background:#f5f6f8;color:#1f2328}
+main{max-width:1000px;margin:auto}.card{background:#fff;border:1px solid #d0d5dd;border-radius:10px;padding:16px;margin:12px 0}
+.ok{color:#147d3f;font-weight:700}.warn{color:#9a6700;font-weight:700}.bad{color:#b42318;font-weight:700}
+pre{white-space:pre-wrap;word-break:break-word;background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:12px}
+textarea,input{width:100%;padding:9px;margin:5px 0 10px;box-sizing:border-box}button{padding:9px 13px;margin:4px}
+.hidden{display:none}a{word-break:break-all}.pill{display:inline-block;background:#eef2f6;padding:3px 7px;margin:2px;border-radius:999px}
+</style>
 </head>
-<body>
-<main>
-  <h1>IACP Generic Worker Portal</h1>
-  <div class="muted">Generalized Worker Bridge — LAB</div>
+<body><main>
+<h1>IACP Generic Worker Portal</h1>
+<div class="warn">LAB — Production changes prohibited</div>
 
-  <section class="card">
-    <div class="ok">Portal mode: GENERIC</div>
-    <p class="warn">Mutation POSTs are single-attempt only. If a response is ambiguous, the Portal performs authoritative session readback and does not blind-retry.</p>
-    <p class="muted">Production changes are prohibited in this LAB portal.</p>
-  </section>
+<section class="card">
+<h3>Authoritative Session</h3>
+<div id="summary" class="warn">Waiting for Worker token...</div>
+<pre id="sessionRaw">No session loaded.</pre>
+<div id="actions"></div>
+</section>
 
-  <section class="card">
-    <h3>Authoritative Session</h3>
-    <div id="sessionSummary" class="warn">Waiting for Worker token...</div>
-    <div id="identityGrid" class="grid hidden"></div>
-    <div id="actionsBox" class="hidden">
-      <p><b>Allowed actions:</b> <span id="allowedActions"></span></p>
-    </div>
-    <pre id="sessionRaw">No session loaded.</pre>
-  </section>
+<section class="card hidden" id="taskCard">
+<h3>Task Instruction</h3><pre id="taskInstruction"></pre>
+<h3>Artifacts</h3><div id="artifacts"></div>
+</section>
 
-  <section class="card hidden" id="taskCard">
-    <h3>Task Instruction</h3>
-    <pre id="taskInstruction"></pre>
-    <div id="inputReferencesWrap" class="hidden">
-      <h3>Input References</h3>
-      <pre id="inputReferences"></pre>
-    </div>
-  </section>
+<section class="card hidden" id="ackCard">
+<h3>Worker ACK</h3><pre id="ackResult">ACK not attempted.</pre>
+</section>
 
-  <section class="card hidden" id="claimCard">
-    <h3>Claim Work</h3>
-    <p>This action is available only when the authoritative session reports <code>CLAIM</code>.</p>
-    <button id="claimButton" type="button">CLAIM</button>
-    <pre id="claimResult">Claim not attempted.</pre>
-  </section>
+<section class="card hidden" id="execCard">
+<h3>Execution Submission</h3>
+<textarea id="resultSummary" placeholder="Result summary"></textarea>
+<input id="artifactFile" placeholder="File name">
+<input id="artifactUrl" placeholder="HTTPS URL">
+<input id="artifactBytes" type="number" min="0" value="0">
+<input id="artifactSha" placeholder="SHA256 optional">
+<button id="submitBtn">SUBMIT RESULT</button>
+</section>
 
-  <section class="card hidden" id="executionCard">
-    <h3>Execution Submission</h3>
-    <label for="resultSummary">Result summary</label>
-    <textarea id="resultSummary" placeholder="Briefly summarize the completed work."></textarea>
+<section class="card hidden" id="qaCard">
+<h3>Independent QA</h3>
+<textarea id="qaNotes" placeholder="QA notes — minimum 30 characters"></textarea>
+<button id="approveBtn">APPROVE</button>
+<button id="reviseBtn">NEEDS REVISION</button>
+</section>
 
-    <div id="artifactInputs"></div>
+<section class="card hidden" id="heartbeatCard">
+<button id="heartbeatBtn">SEND HEARTBEAT</button>
+</section>
 
-    <button id="submitButton" type="button">SUBMIT RESULT</button>
-    <pre id="submitResult">Submit not attempted.</pre>
-  </section>
-
-  <section class="card hidden" id="qaCard">
-    <h3>Independent QA</h3>
-    <div id="sourceArtifacts"></div>
-
-    <label for="qaNotes">QA notes</label>
-    <textarea id="qaNotes" placeholder="At least 30 characters. Explain the independent review and verdict."></textarea>
-
-    <details>
-      <summary>Optional QA artifact</summary>
-      <div class="artifact">
-        <label for="qaArtifactFileName">File name</label>
-        <input id="qaArtifactFileName" placeholder="qa-report.txt or qa-report.docx" />
-
-        <label for="qaArtifactUrl">HTTPS URL</label>
-        <input id="qaArtifactUrl" placeholder="https://..." />
-
-        <label for="qaArtifactBytes">Bytes</label>
-        <input id="qaArtifactBytes" type="number" min="0" value="0" />
-
-        <label for="qaArtifactSha">SHA256 (optional)</label>
-        <input id="qaArtifactSha" placeholder="64 hex characters, optional" />
-
-        <label for="qaArtifactType">Artifact type</label>
-        <input id="qaArtifactType" value="QA_REPORT" />
-      </div>
-    </details>
-
-    <button id="qaApproveButton" type="button">APPROVE</button>
-    <button id="qaRevisionButton" class="danger" type="button">NEEDS REVISION</button>
-    <pre id="qaResult">QA submit not attempted.</pre>
-  </section>
-
-  <section class="card hidden" id="ackCard">
-    <h3>Worker ACK</h3>
-    <pre id="ackResult">ACK not attempted.</pre>
-  </section>
-
-  <section class="card hidden" id="heartbeatCard">
-    <h3>Heartbeat</h3>
-    <button id="heartbeatButton" class="secondary" type="button">SEND HEARTBEAT</button>
-    <pre id="heartbeatResult">Heartbeat not attempted.</pre>
-  </section>
-
-  <section class="card">
-    <h3>Authoritative Readback</h3>
-    <pre id="readbackResult">No mutation has been attempted.</pre>
-  </section>
-
-  <section class="card">
-    <h3>Worker Status</h3>
-    <pre id="finalStatus">READ-ONLY — WAITING FOR WORKER TOKEN</pre>
-  </section>
-</main>
+<section class="card"><h3>Authoritative Readback</h3><pre id="readback">No mutation attempted.</pre></section>
+<section class="card"><h3>Worker Status</h3><pre id="status">WAITING</pre></section>
 
 <script>
 'use strict';
+const GATEWAY='https://script.google.com/macros/s/AKfycbxiBdKrdBbo-qBB4A8RlE31f54Fd6GCHuo4_Md1QvyhMtv6EM5Y_T_sJ3i_ZUTQaA/exec';
+const $=id=>document.getElementById(id);
+const clean=v=>String(v==null?'':v).trim();
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+let token='',session=null,mutationBlocked=false;
 
-const GATEWAY = 'https://script.google.com/macros/s/AKfycbxiBdKrdBbo-qBB4A8RlE31f54Fd6GCHuo4_Md1QvyhMtv6EM5Y_T_sJ3i_ZUTQaA/exec';
-const READ_MAX_ATTEMPTS = 4;
-const READ_RETRY_DELAY_MS = 1200;
-
-let workerToken = '';
-let session = null;
-let mutationBlocked = false;
-
-const $ = id => document.getElementById(id);
-const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-const clean = v => String(v == null ? '' : v).trim();
-const hasAction = action => !!(session && Array.isArray(session.allowedActions) && session.allowedActions.includes(action));
-
-function requestId(prefix){
-  if (window.crypto && crypto.randomUUID) return prefix + '-' + crypto.randomUUID();
-  return prefix + '-' + Date.now() + '-' + Math.random().toString(36).slice(2, 12);
-}
-
+function requestId(p){return p+'-'+(crypto.randomUUID?crypto.randomUUID():Date.now()+'-'+Math.random().toString(36).slice(2))}
 function tokenFromLocation(){
-  const rawHash = window.location.hash || '';
-  if (rawHash.startsWith('#')){
-    const fragmentToken = clean(new URLSearchParams(rawHash.slice(1)).get('token'));
-    if (fragmentToken) return fragmentToken;
-  }
-
-  const params = new URLSearchParams(window.location.search || '');
-  return clean(params.get('token'));
+  const h=new URLSearchParams((location.hash||'').replace(/^#/,''));
+  const q=new URLSearchParams(location.search||'');
+  return clean(h.get('token')||q.get('token'));
 }
-
-function removeTokenFromVisibleUrl(){
-  const params = new URLSearchParams(window.location.search || '');
-  params.delete('token');
-
-  const remaining = params.toString();
-  const cleanUrl =
-    window.location.pathname +
-    (remaining ? '?' + remaining : '');
-
-  history.replaceState(null, document.title, cleanUrl);
+function scrubToken(){
+  const q=new URLSearchParams(location.search||''); q.delete('token');
+  history.replaceState(null,document.title,location.pathname+(q.toString()?'?'+q.toString():''));
 }
-
-function cacheBusted(url, attempt){
-  const sep = url.includes('?') ? '&' : '?';
-  return url + sep + '_cb=' + Date.now() + '-' + attempt;
-}
-
-async function readJsonWithRetry(baseUrl, label){
-  const attempts = [];
-  for (let attempt = 1; attempt <= READ_MAX_ATTEMPTS; attempt++){
+async function readJson(url,label){
+  const attempts=[];
+  for(let i=1;i<=4;i++){
     try{
-      const response = await fetch(cacheBusted(baseUrl, attempt), {
-        method: 'GET',
-        redirect: 'follow',
-        cache: 'no-store',
-        headers: {Accept:'application/json,text/plain,*/*'}
-      });
-      const text = await response.text();
-      let parsed;
-      try{
-        parsed = JSON.parse(text);
-      }catch(err){
-        attempts.push({attempt,httpStatus:response.status,result:'BAD_JSON',preview:text.slice(0,220)});
-        if (attempt < READ_MAX_ATTEMPTS){
-          await sleep(READ_RETRY_DELAY_MS * attempt);
-          continue;
-        }
-        throw {message:label + '_BAD_JSON', attempts};
-      }
-      if (!response.ok){
-        attempts.push({attempt,httpStatus:response.status,result:'HTTP_ERROR',body:parsed});
-        if (attempt < READ_MAX_ATTEMPTS){
-          await sleep(READ_RETRY_DELAY_MS * attempt);
-          continue;
-        }
-        throw {message:label + '_HTTP_' + response.status, attempts};
-      }
-      attempts.push({attempt,httpStatus:response.status,result:'SUCCESS'});
-      return {data:parsed, attempts, successAttempt:attempt};
-    }catch(err){
-      if (err && err.attempts) throw err;
-      attempts.push({attempt,result:'FETCH_ERROR',error:err && err.message ? err.message : String(err)});
-      if (attempt < READ_MAX_ATTEMPTS){
-        await sleep(READ_RETRY_DELAY_MS * attempt);
-        continue;
-      }
-      throw {message:label + '_FETCH_FAILED', attempts};
-    }
+      const r=await fetch(url+(url.includes('?')?'&':'?')+'_cb='+Date.now()+'-'+i,{cache:'no-store',redirect:'follow'});
+      const t=await r.text(); let j;
+      try{j=JSON.parse(t)}catch(e){attempts.push({i,status:r.status,error:'BAD_JSON'});if(i<4){await sleep(900*i);continue}throw new Error(label+'_BAD_JSON')}
+      if(!r.ok){attempts.push({i,status:r.status,error:'HTTP'});if(i<4){await sleep(900*i);continue}throw new Error(label+'_HTTP_'+r.status)}
+      attempts.push({i,status:r.status,result:'SUCCESS'});return {data:j,attempts};
+    }catch(e){if(i===4)throw e;await sleep(900*i)}
   }
 }
-
-async function singleAttemptPost(payload, label){
-  const diagnostic = {label, attemptedAt:new Date().toISOString(), requestId:payload.requestId || null};
-  try{
-    const response = await fetch(GATEWAY, {
-      method:'POST',
-      redirect:'follow',
-      headers:{'Content-Type':'text/plain;charset=utf-8','Accept':'application/json,text/plain,*/*'},
-      body:JSON.stringify(payload)
-    });
-    diagnostic.httpStatus = response.status;
-    const text = await response.text();
-    diagnostic.responsePreview = text.slice(0,400);
-    try{
-      diagnostic.body = JSON.parse(text);
-    }catch(err){
-      diagnostic.ambiguous = true;
-      diagnostic.reason = 'BAD_JSON';
-      return diagnostic;
-    }
-    if (!response.ok){
-      diagnostic.ambiguous = true;
-      diagnostic.reason = 'HTTP_' + response.status;
-      return diagnostic;
-    }
-    diagnostic.ambiguous = false;
-    return diagnostic;
-  }catch(err){
-    diagnostic.ambiguous = true;
-    diagnostic.reason = 'FETCH_ERROR';
-    diagnostic.error = err && err.message ? err.message : String(err);
-    return diagnostic;
-  }
-}
-
 async function readSession(label){
-  if (!workerToken) throw new Error('TOKEN_MISSING');
-  const read = await readJsonWithRetry(
-    GATEWAY + '?action=get_session&token=' + encodeURIComponent(workerToken),
-    label
-  );
-  if (!read.data || read.data.ok !== true || !read.data.session){
-    throw {message:label + '_SESSION_NOT_OK', response:read.data, attempts:read.attempts};
-  }
-  session = read.data.session;
-  return read;
+  if(!token)throw new Error('TOKEN_MISSING');
+  const r=await readJson(GATEWAY+'?action=get_session&token='+encodeURIComponent(token),label);
+  if(!r.data||r.data.ok!==true||!r.data.session)throw new Error(label+'_SESSION_NOT_OK');
+  session=r.data.session; renderSession(r); return session;
 }
-
-function renderIdentity(){
-  if (!session) return;
-  const fields = [
-    ['Project ID', session.projectId],
-    ['Task ID', session.taskId],
-    ['Task Title', session.taskTitle],
-    ['Task Type', session.taskType],
-    ['Role', session.role],
-    ['Role Type', session.roleType],
-    ['Worker ID', session.workerId],
-    ['Revision', session.revision],
-    ['Status', session.status],
-    ['Session State', session.sessionState || 'ACTIVE'],
-    ['Dispatch ID', session.dispatchId || ''],
-    ['Acknowledged At', session.acknowledgedAt || ''],
-    ['Next Actor', session.nextActor],
-    ['Expected Output Type', session.expectedOutputType],
-    ['Expected Output Count', session.expectedOutputCount],
-    ['Lock Present', !!clean(session.lockId)]
-  ];
-  $('identityGrid').innerHTML = fields.map(([k,v]) =>
-    '<div class="kv"><b>' + escapeHtml(k) + '</b>' + escapeHtml(String(v == null ? '' : v)) + '</div>'
-  ).join('');
-  $('identityGrid').classList.remove('hidden');
-  $('actionsBox').classList.remove('hidden');
-  $('allowedActions').innerHTML = (session.allowedActions || []).length
-    ? session.allowedActions.map(a => '<span class="pill">' + escapeHtml(a) + '</span>').join('')
-    : '<span class="muted">none</span>';
+async function postOnce(payload,label){
+  const d={label,requestId:payload.requestId,attemptedAt:new Date().toISOString()};
+  try{
+    const r=await fetch(GATEWAY,{method:'POST',redirect:'follow',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(payload)});
+    const t=await r.text(); d.httpStatus=r.status;
+    try{d.body=JSON.parse(t)}catch(e){d.ambiguous=true;d.reason='BAD_JSON';return d}
+    d.ambiguous=!r.ok;if(!r.ok)d.reason='HTTP_'+r.status;return d;
+  }catch(e){d.ambiguous=true;d.reason='FETCH_ERROR';d.error=String(e);return d}
 }
-
-function renderTask(){
-  if (!session) return;
-  $('taskCard').classList.remove('hidden');
-  $('taskInstruction').textContent = clean(session.taskInstruction) || '(empty)';
-  if (clean(session.inputReferences)){
-    $('inputReferences').textContent = session.inputReferences;
-    $('inputReferencesWrap').classList.remove('hidden');
-  }else{
-    $('inputReferencesWrap').classList.add('hidden');
-  }
-}
-
-function renderSourceArtifacts(){
-  const list = Array.isArray(session && session.artifacts) ? session.artifacts : [];
-  const primary = clean(session && session.primaryOutputLink);
-  const parts = [];
-  if (primary){
-    parts.push('<p><b>Primary output:</b> <a target="_blank" rel="noopener noreferrer" href="' +
-      escapeAttr(primary) + '">' + escapeHtml(primary) + '</a></p>');
-  }
-  if (!list.length){
-    parts.push('<p class="muted">No registered artifacts are visible for this revision.</p>');
-  }else{
-    parts.push('<div>');
-    list.forEach(a => {
-      parts.push(
-        '<div class="artifact">' +
-        '<b>' + escapeHtml(a.fileName || a.artifactId || 'Artifact') + '</b><br>' +
-        'Type: ' + escapeHtml(a.artifactType || '') + '<br>' +
-        'Produced by: ' + escapeHtml(a.producedByRole || '') + ' / ' + escapeHtml(a.producedByWorker || '') + '<br>' +
-        (a.url ? '<a target="_blank" rel="noopener noreferrer" href="' + escapeAttr(a.url) + '">' + escapeHtml(a.url) + '</a>' : '') +
-        '</div>'
-      );
-    });
-    parts.push('</div>');
-  }
-  $('sourceArtifacts').innerHTML = parts.join('');
-}
-
-function renderArtifactInputs(){
-  const count = Math.max(1, Number(session.expectedOutputCount || 1));
-  const expectedType = clean(session.expectedOutputType) || '';
-  const wrap = $('artifactInputs');
-  const chunks = ['<h3>Output Artifacts</h3>'];
-  for (let i=0;i<count;i++){
-    chunks.push(
-      '<div class="artifact" data-artifact-index="' + i + '">' +
-      '<b>Artifact ' + (i+1) + ' of ' + count + '</b>' +
-      '<label>File name</label><input data-field="fileName" placeholder="output.docx" />' +
-      '<label>HTTPS URL</label><input data-field="url" placeholder="https://..." />' +
-      '<label>Bytes</label><input data-field="bytes" type="number" min="0" value="0" />' +
-      '<label>SHA256 (optional)</label><input data-field="sha256" placeholder="64 hex characters, optional" />' +
-      '<label>Artifact type</label><input data-field="type" value="' + escapeAttr(expectedType) + '" />' +
-      (i===0 ? '<label><input data-field="isPrimary" type="checkbox" checked style="width:auto;margin-right:8px" />Primary artifact</label>' : '') +
-      '</div>'
-    );
-  }
-  wrap.innerHTML = chunks.join('');
-}
-
-function collectArtifacts(){
-  return Array.from(document.querySelectorAll('[data-artifact-index]')).map((node, i) => {
-    const get = name => node.querySelector('[data-field="' + name + '"]');
-    const primary = get('isPrimary');
-    return {
-      type: clean(get('type').value),
-      fileName: clean(get('fileName').value),
-      url: clean(get('url').value),
-      sha256: clean(get('sha256').value).toLowerCase(),
-      bytes: Number(get('bytes').value || 0),
-      isPrimary: primary ? !!primary.checked : false
-    };
-  });
-}
-
-function collectOptionalQaArtifacts(){
-  const url = clean($('qaArtifactUrl').value);
-  const fileName = clean($('qaArtifactFileName').value);
-  const type = clean($('qaArtifactType').value);
-  const sha256 = clean($('qaArtifactSha').value).toLowerCase();
-  const bytes = Number($('qaArtifactBytes').value || 0);
-  if (!url && !fileName && !sha256 && bytes === 0) return [];
-  return [{type,fileName,url,sha256,bytes,isPrimary:false}];
-}
-
-function renderActions(){
-  if (!session) return;
-  ['claimCard','executionCard','qaCard','ackCard','heartbeatCard'].forEach(id => $(id).classList.add('hidden'));
-
-  if (hasAction('CLAIM')){
-    $('claimCard').classList.remove('hidden');
-  }
-  if (hasAction('SUBMIT_RESULT')){
-    renderArtifactInputs();
-    $('executionCard').classList.remove('hidden');
-    $('heartbeatCard').classList.remove('hidden');
-  }
-  if (hasAction('QA_APPROVE') || hasAction('QA_NEEDS_REVISION')){
-    renderSourceArtifacts();
-    $('qaCard').classList.remove('hidden');
-    $('heartbeatCard').classList.remove('hidden');
-    $('qaApproveButton').disabled = !hasAction('QA_APPROVE');
-    $('qaRevisionButton').disabled = !hasAction('QA_NEEDS_REVISION');
-  }
-}
-
+function has(a){return !!(session&&Array.isArray(session.allowedActions)&&session.allowedActions.includes(a))}
 function renderSession(read){
-  $('sessionSummary').textContent =
-    'Session valid — ' + session.role + ' / ' + session.taskId + ' / R' + session.revision;
-  $('sessionSummary').className = 'ok';
-  $('sessionRaw').textContent = JSON.stringify({
-    successAttempt: read.successAttempt,
-    attempts: read.attempts,
-    session
-  }, null, 2);
-  renderIdentity();
-  renderTask();
-  renderActions();
-
-  if ((session.allowedActions || []).length === 0){
-    $('finalStatus').textContent = 'NO MUTATION AVAILABLE — authoritative state: ' + session.status;
-  }else{
-    $('finalStatus').textContent = 'READY — use only the actions exposed by the authoritative session.';
-  }
+  $('summary').textContent='Session valid — '+session.role+' / '+session.taskId+' / R'+session.revision;
+  $('summary').className='ok';
+  $('sessionRaw').textContent=JSON.stringify({attempts:read.attempts,session},null,2);
+  $('actions').innerHTML='<b>Allowed actions:</b> '+((session.allowedActions||[]).map(x=>'<span class="pill">'+x+'</span>').join('')||'none');
+  $('taskCard').classList.remove('hidden'); $('taskInstruction').textContent=clean(session.taskInstruction)||'(empty)';
+  const arts=Array.isArray(session.artifacts)?session.artifacts:[];
+  $('artifacts').innerHTML=(clean(session.primaryOutputLink)?'<p><a target="_blank" rel="noopener" href="'+session.primaryOutputLink+'">Primary output</a></p>':'')+
+    arts.map(a=>'<p><b>'+clean(a.fileName||a.artifactId)+'</b><br><a target="_blank" rel="noopener" href="'+clean(a.url)+'">'+clean(a.url)+'</a></p>').join('');
+  $('execCard').classList.toggle('hidden',!has('SUBMIT_RESULT'));
+  $('qaCard').classList.toggle('hidden',!(has('QA_APPROVE')||has('QA_NEEDS_REVISION')));
+  $('heartbeatCard').classList.toggle('hidden',!(has('SUBMIT_RESULT')||has('QA_APPROVE')||has('QA_NEEDS_REVISION')));
+  $('approveBtn').disabled=!has('QA_APPROVE'); $('reviseBtn').disabled=!has('QA_NEEDS_REVISION');
+  $('status').textContent=(session.allowedActions||[]).length?'READY':'NO TASK MUTATION AVAILABLE — '+session.status;
 }
-
-function disableMutationButtons(){
-  mutationBlocked = true;
-  ['claimButton','submitButton','qaApproveButton','qaRevisionButton','heartbeatButton'].forEach(id => {
-    const node = $(id);
-    if (node) node.disabled = true;
-  });
-}
-
-function setMutationBlocked(reason){
-  disableMutationButtons();
-  $('finalStatus').textContent = 'MUTATION BLOCKED — ' + reason;
-}
-
-async function authoritativeReadback(label){
-  try{
-    const read = await readSession(label);
-    renderSession(read);
-    $('readbackResult').textContent = JSON.stringify({
-      result:'CONFIRMED',
-      successAttempt:read.successAttempt,
-      attempts:read.attempts,
-      session
-    }, null, 2);
-    return {confirmed:true, read};
-  }catch(err){
-    $('readbackResult').textContent = JSON.stringify({
-      result:'UNCONFIRMED',
-      error:err && err.message ? err.message : String(err),
-      detail:err
-    }, null, 2);
-    setMutationBlocked('Authoritative readback failed. Do not blind-retry mutation.');
-    return {confirmed:false, error:err};
-  }
-}
-
-async function mutateThenReadback(payload, mutationLabel, outputId){
-  if (mutationBlocked){
-    $(outputId).textContent = 'BLOCKED — previous ambiguous outcome/readback failure. Reload with a valid fresh session.';
-    return;
-  }
-
-  const diagnostic = await singleAttemptPost(payload, mutationLabel);
-  $(outputId).textContent = JSON.stringify(diagnostic, null, 2);
-
-  const readback = await authoritativeReadback(mutationLabel + '_READBACK');
-  if (!readback.confirmed){
-    return;
-  }
-
-  if (diagnostic.ambiguous){
-    $('finalStatus').textContent = 'POST outcome was ambiguous; authoritative readback above is the source of truth. No blind retry performed.';
-  }
-}
-
-async function claim(){
-  if (!hasAction('CLAIM')) return;
-  await mutateThenReadback({
-    action:'claim',
-    token:workerToken,
-    taskId:session.taskId,
-    role:session.role,
-    revision:session.revision,
-    workerId:session.workerId,
-    requestId:requestId('CLAIM')
-  }, 'CLAIM', 'claimResult');
-}
-
-async function acknowledgeWorkerStart(){
-  if (!session || mutationBlocked) return;
-  if (!(session.allowedActions || []).length) return;
-  if (!clean(session.lockId)) return;
-
-  $('ackCard').classList.remove('hidden');
-
-  if (clean(session.acknowledgedAt)){
-    $('ackResult').textContent = JSON.stringify({
-      result:'ALREADY_ACKNOWLEDGED',
-      acknowledgedAt:session.acknowledgedAt,
-      dispatchId:session.dispatchId || ''
-    }, null, 2);
-    return;
-  }
-
-  const payload = {
-    action:'acknowledge',
-    token:workerToken,
-    taskId:session.taskId,
-    role:session.role,
-    revision:session.revision,
-    workerId:session.workerId,
-    dispatchId:session.dispatchId || '',
-    requestId:requestId('ACK')
+function ackPreflight(){
+  return {
+    sessionPresent:!!session,workerTokenPresent:!!clean(token),
+    sessionState:clean(session&&session.sessionState)||'ACTIVE',
+    status:clean(session&&session.status),
+    allowedActions:Array.isArray(session&&session.allowedActions)?session.allowedActions:[],
+    lockIdPresent:!!clean(session&&session.lockId),
+    dispatchIdPresent:!!clean(session&&session.dispatchId),
+    acknowledgedAtPresent:!!clean(session&&session.acknowledgedAt),
+    mutationBlocked:!!mutationBlocked
   };
-
-  await mutateThenReadback(payload, 'WORKER_ACK', 'ackResult');
 }
-
-async function heartbeat(){
-  if (!hasAction('HEARTBEAT')) return;
-  await mutateThenReadback({
-    action:'heartbeat',
-    token:workerToken,
-    taskId:session.taskId,
-    role:session.role,
-    revision:session.revision,
-    workerId:session.workerId,
-    requestId:requestId('HEARTBEAT')
-  }, 'HEARTBEAT', 'heartbeatResult');
-}
-
-async function submitResult(){
-  if (!hasAction('SUBMIT_RESULT')) return;
-  await mutateThenReadback({
-    action:'submit',
-    token:workerToken,
-    taskId:session.taskId,
-    role:session.role,
-    revision:session.revision,
-    workerId:session.workerId,
-    resultSummary:clean($('resultSummary').value),
-    artifacts:collectArtifacts(),
-    requestId:requestId('SUBMIT')
-  }, 'SUBMIT_RESULT', 'submitResult');
-}
-
-async function qaSubmit(verdict){
-  const needed = verdict === 'APPROVED' ? 'QA_APPROVE' : 'QA_NEEDS_REVISION';
-  if (!hasAction(needed)) return;
-
-  await mutateThenReadback({
-    action:'qa_submit',
-    token:workerToken,
-    taskId:session.taskId,
-    role:session.role,
-    revision:session.revision,
-    workerId:session.workerId,
-    verdict,
-    qaNotes:clean($('qaNotes').value),
-    artifacts:collectOptionalQaArtifacts(),
-    requestId:requestId('QA_' + verdict)
-  }, 'QA_' + verdict, 'qaResult');
-}
-
-function escapeHtml(value){
-  return String(value == null ? '' : value)
-    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-}
-function escapeAttr(value){ return escapeHtml(value); }
-
-async function initialize(){
-  workerToken = tokenFromLocation();
-  removeTokenFromVisibleUrl();
-
-  if (!workerToken){
-    $('sessionSummary').textContent = 'TOKEN_MISSING — read-only page.';
-    $('sessionSummary').className = 'warn';
-    $('finalStatus').textContent = 'READ-ONLY — NO WORKER TOKEN';
-    return;
-  }
-
+async function acknowledge(){
+  $('ackCard').classList.remove('hidden');
+  const p=ackPreflight(); let code='';
+  if(!p.sessionPresent)code='ACK_BLOCKED_SESSION_MISSING';
+  else if(!p.workerTokenPresent)code='ACK_BLOCKED_TOKEN_MISSING';
+  else if(p.sessionState!=='ACTIVE')code='ACK_BLOCKED_SESSION_NOT_ACTIVE';
+  else if(p.mutationBlocked)code='ACK_BLOCKED_MUTATION_BLOCKED';
+  else if(!p.lockIdPresent)code='ACK_BLOCKED_NO_LOCK';
+  else if(!p.dispatchIdPresent)code='ACK_BLOCKED_NO_DISPATCH_ID';
+  if(code){$('ackResult').textContent=JSON.stringify({stage:'ACK_BLOCKED',code,preflight:p},null,2);return null}
+  if(p.acknowledgedAtPresent){$('ackResult').textContent=JSON.stringify({stage:'ACK_ALREADY_CONFIRMED',preflight:p,acknowledgedAt:session.acknowledgedAt},null,2);return session}
+  const payload={action:'acknowledge',token,taskId:session.taskId,role:session.role,revision:Number(session.revision),dispatchId:session.dispatchId,lockId:session.lockId,requestId:requestId('ACK')};
+  const post=await postOnce(payload,'WORKER_ACK');
+  $('ackResult').textContent=JSON.stringify({stage:'ACK_POST_COMPLETED',preflight:p,post},null,2);
   try{
-    const read = await readSession('INITIAL_SESSION');
-    renderSession(read);
-    if ((session.allowedActions || []).length > 0 && clean(session.lockId)) {
-      await acknowledgeWorkerStart();
-    }
-  }catch(err){
-    $('sessionSummary').textContent = 'Session validation failed.';
-    $('sessionSummary').className = 'bad';
-    $('sessionRaw').textContent = JSON.stringify({
-      error:err && err.message ? err.message : String(err),
-      detail:err
-    }, null, 2);
-    $('finalStatus').textContent = 'BLOCKED — INVALID OR EXPIRED SESSION';
-    disableMutationButtons();
+    const s=await readSession('WORKER_ACK_READBACK');
+    $('ackResult').textContent=JSON.stringify({stage:'ACK_READBACK_COMPLETED',preflight:p,post,authoritative:{sessionState:s.sessionState,status:s.status,dispatchId:s.dispatchId,acknowledgedAt:s.acknowledgedAt}},null,2);
+    $('readback').textContent=JSON.stringify(s,null,2); return s;
+  }catch(e){
+    mutationBlocked=true;$('ackResult').textContent=JSON.stringify({stage:'ACK_READBACK_FAILED',preflight:p,post,error:String(e)},null,2);return null
   }
 }
-
-$('claimButton').addEventListener('click', claim);
-$('submitButton').addEventListener('click', submitResult);
-$('qaApproveButton').addEventListener('click', () => qaSubmit('APPROVED'));
-$('qaRevisionButton').addEventListener('click', () => qaSubmit('NEEDS_REVISION'));
-$('heartbeatButton').addEventListener('click', heartbeat);
-
+async function mutate(payload,label){
+  if(mutationBlocked)return;
+  const post=await postOnce(payload,label);
+  try{const s=await readSession(label+'_READBACK');$('readback').textContent=JSON.stringify({post,session:s},null,2);return s}
+  catch(e){mutationBlocked=true;$('readback').textContent=JSON.stringify({post,error:String(e)},null,2);$('status').textContent='BLOCKED — authoritative readback failed. No blind retry.'}
+}
+async function heartbeat(){
+  if(!session||!clean(session.lockId))return;
+  await mutate({action:'heartbeat',token,taskId:session.taskId,role:session.role,revision:Number(session.revision),lockId:session.lockId,requestId:requestId('HEARTBEAT')},'HEARTBEAT');
+}
+async function submitResult(){
+  if(!has('SUBMIT_RESULT'))return;
+  const summary=clean($('resultSummary').value),fileName=clean($('artifactFile').value),url=clean($('artifactUrl').value),bytes=Number($('artifactBytes').value||0),sha256=clean($('artifactSha').value).toLowerCase();
+  if(!summary||!fileName||!url){$('status').textContent='BLOCKED — result summary, file name and URL required.';return}
+  const artifacts=[{type:clean(session.expectedOutputType)||'OUTPUT',fileName,url,bytes,sha256,isPrimary:true}];
+  await mutate({action:'submit',token,taskId:session.taskId,role:session.role,revision:Number(session.revision),lockId:session.lockId,resultSummary:summary,artifacts,requestId:requestId('SUBMIT')},'SUBMIT_RESULT');
+}
+async function qa(verdict){
+  const needed=verdict==='APPROVED'?'QA_APPROVE':'QA_NEEDS_REVISION'; if(!has(needed))return;
+  const qaNotes=clean($('qaNotes').value);if(qaNotes.length<30){$('status').textContent='BLOCKED — QA notes must be at least 30 characters.';return}
+  await mutate({action:'qa_submit',token,taskId:session.taskId,role:session.role,revision:Number(session.revision),lockId:session.lockId,verdict,qaNotes,qaArtifacts:[],requestId:requestId('QA')},'QA_'+verdict);
+}
+async function initialize(){
+  token=tokenFromLocation();scrubToken();
+  if(!token){$('summary').textContent='TOKEN_MISSING — No session loaded';$('status').textContent='READ-ONLY — NO WORKER TOKEN';return}
+  try{await readSession('INITIAL_SESSION');await acknowledge()}
+  catch(e){$('summary').textContent='Session validation failed';$('summary').className='bad';$('status').textContent='BLOCKED — '+String(e)}
+}
+$('heartbeatBtn').onclick=heartbeat;$('submitBtn').onclick=submitResult;$('approveBtn').onclick=()=>qa('APPROVED');$('reviseBtn').onclick=()=>qa('NEEDS_REVISION');
 initialize();
 </script>
-</body>
-</html>
+</main></body></html>
