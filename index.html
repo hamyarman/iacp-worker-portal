@@ -121,6 +121,11 @@
     <pre id="qaResult">QA submit not attempted.</pre>
   </section>
 
+  <section class="card hidden" id="ackCard">
+    <h3>Worker ACK</h3>
+    <pre id="ackResult">ACK not attempted.</pre>
+  </section>
+
   <section class="card hidden" id="heartbeatCard">
     <h3>Heartbeat</h3>
     <button id="heartbeatButton" class="secondary" type="button">SEND HEARTBEAT</button>
@@ -279,6 +284,9 @@ function renderIdentity(){
     ['Worker ID', session.workerId],
     ['Revision', session.revision],
     ['Status', session.status],
+    ['Session State', session.sessionState || 'ACTIVE'],
+    ['Dispatch ID', session.dispatchId || ''],
+    ['Acknowledged At', session.acknowledgedAt || ''],
     ['Next Actor', session.nextActor],
     ['Expected Output Type', session.expectedOutputType],
     ['Expected Output Count', session.expectedOutputCount],
@@ -381,7 +389,7 @@ function collectOptionalQaArtifacts(){
 
 function renderActions(){
   if (!session) return;
-  ['claimCard','executionCard','qaCard','heartbeatCard'].forEach(id => $(id).classList.add('hidden'));
+  ['claimCard','executionCard','qaCard','ackCard','heartbeatCard'].forEach(id => $(id).classList.add('hidden'));
 
   if (hasAction('CLAIM')){
     $('claimCard').classList.remove('hidden');
@@ -455,6 +463,8 @@ async function mutateAndReadback(payload, label, outputId){
   const post = await singleAttemptPost(payload, label);
   $(outputId).textContent = JSON.stringify(post, null, 2);
 
+  // The POST transport response is not treated as authoritative.
+  // Always resolve the committed state from GET get_session.
   try{
     await authoritativeReadback(label + '_READBACK');
   }catch(err){
@@ -472,6 +482,43 @@ async function claim(){
     revision:Number(session.revision),
     requestId:requestId('claim')
   }, 'CLAIM', 'claimResult');
+}
+
+async function acknowledgeWorkerStart(){
+  if (!session || !clean(session.lockId) || !clean(session.dispatchId)) return null;
+
+  $('ackCard').classList.remove('hidden');
+
+  if (clean(session.acknowledgedAt)){
+    $('ackResult').textContent = JSON.stringify({
+      alreadyAcknowledged:true,
+      acknowledgedAt:session.acknowledgedAt,
+      dispatchId:session.dispatchId
+    }, null, 2);
+    return session;
+  }
+
+  const payload = {
+    action:'acknowledge',
+    token:workerToken,
+    taskId:session.taskId,
+    role:session.role,
+    revision:Number(session.revision),
+    dispatchId:session.dispatchId,
+    lockId:session.lockId,
+    requestId:requestId('ack')
+  };
+
+  const post = await singleAttemptPost(payload, 'WORKER_ACK');
+  $('ackResult').textContent = JSON.stringify(post, null, 2);
+
+  // ACK is a mutation: never retry POST blindly.
+  // Resolve authoritative state only through get_session.
+  try{
+    return await authoritativeReadback('WORKER_ACK_READBACK');
+  }catch(err){
+    return null;
+  }
 }
 
 async function heartbeat(){
@@ -569,6 +616,9 @@ async function initialize(){
   try{
     const read = await readSession('INITIAL_SESSION');
     renderSession(read);
+    if ((session.allowedActions || []).length > 0 && clean(session.lockId)) {
+      await acknowledgeWorkerStart();
+    }
   }catch(err){
     $('sessionSummary').textContent = 'Session validation failed.';
     $('sessionSummary').className = 'bad';
